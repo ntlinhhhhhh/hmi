@@ -42,7 +42,10 @@ export const users = pgTable(
     fullName: text("full_name"),
     role: text("role").default("PARENT").notNull(),
     status: text("status").default("ACTIVE").notNull(),
-    lastLoginAt: timestamp("last_login_at", { withTimezone: true, mode: "string" }),
+    lastLoginAt: timestamp("last_login_at", {
+      withTimezone: true,
+      mode: "string",
+    }),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "string" })
       .defaultNow()
       .notNull(),
@@ -51,13 +54,25 @@ export const users = pgTable(
       .notNull(),
   },
   (table) => [
-    index("idx_users_email").using("btree", table.email.asc().nullsLast().op("citext_ops")),
-    index("idx_users_phone_number").using("btree", table.phoneNumber.asc().nullsLast().op("citext_ops")),
+    index("idx_users_email").using(
+      "btree",
+      table.email.asc().nullsLast().op("citext_ops"),
+    ),
+    index("idx_users_phone_number").using(
+      "btree",
+      table.phoneNumber.asc().nullsLast().op("citext_ops"),
+    ),
     unique("users_email_key").on(table.email),
     unique("users_phone_number_key").on(table.phoneNumber),
-    check("users_role_check", sql`role = ANY (ARRAY['PARENT'::text, 'ADMIN'::text])`),
-    check("users_status_check", sql`status = ANY (ARRAY['ACTIVE'::text, 'BANNED'::text])`),
-  ]
+    check(
+      "users_role_check",
+      sql`role = ANY (ARRAY['PARENT'::text, 'ADMIN'::text])`,
+    ),
+    check(
+      "users_status_check",
+      sql`status = ANY (ARRAY['ACTIVE'::text, 'BANNED'::text])`,
+    ),
+  ],
 );
 
 export const passwordResetCodes = pgTable(
@@ -65,9 +80,15 @@ export const passwordResetCodes = pgTable(
   {
     id: uuid().primaryKey().notNull(),
     userId: uuid("user_id").notNull(),
-    codeHash: text("code_hash").notNull(), 
-    expiresAt: timestamp("expires_at", { withTimezone: true, mode: "string" }).notNull(),
-    verifiedAt: timestamp("verified_at", { withTimezone: true, mode: "string" }),
+    codeHash: text("code_hash").notNull(),
+    expiresAt: timestamp("expires_at", {
+      withTimezone: true,
+      mode: "string",
+    }).notNull(),
+    verifiedAt: timestamp("verified_at", {
+      withTimezone: true,
+      mode: "string",
+    }),
     usedAt: timestamp("used_at", { withTimezone: true, mode: "string" }),
     attemptCount: integer("attempt_count").default(0).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "string" })
@@ -88,11 +109,50 @@ export const passwordResetCodes = pgTable(
       foreignColumns: [users.id],
       name: "password_reset_codes_user_id_fkey",
     }).onDelete("cascade"),
-    
+
     unique("password_reset_codes_code_hash_key").on(table.codeHash),
     check("password_reset_codes_attempt_count_check", sql`attempt_count >= 0`),
     check("password_reset_codes_expiry_check", sql`expires_at > created_at`),
-  ]
+  ],
+);
+
+export const sessions = pgTable(
+  "sessions",
+  {
+    id: uuid().primaryKey().notNull(),
+    userId: uuid("user_id").notNull(),
+    sessionTokenHash: text("session_token_hash").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+    lastUsedAt: timestamp("last_used_at", {
+      withTimezone: true,
+      mode: "string",
+    })
+      .defaultNow()
+      .notNull(),
+    expiresAt: timestamp("expires_at", {
+      withTimezone: true,
+      mode: "string",
+    }).notNull(),
+  },
+  (table) => [
+    index("idx_sessions_expires_at").using(
+      "btree",
+      table.expiresAt.asc().nullsLast().op("timestamptz_ops"),
+    ),
+    index("idx_sessions_user_id").using(
+      "btree",
+      table.userId.asc().nullsLast().op("uuid_ops"),
+    ),
+    foreignKey({
+      columns: [table.userId],
+      foreignColumns: [users.id],
+      name: "sessions_user_id_fkey",
+    }).onDelete("cascade"),
+    unique("sessions_session_token_hash_key").on(table.sessionTokenHash),
+    check("sessions_expiry_check", sql`expires_at > created_at`),
+  ],
 );
 
 export const childProfiles = pgTable(
@@ -112,14 +172,17 @@ export const childProfiles = pgTable(
       .notNull(),
   },
   (table) => [
-    index("idx_child_profiles_parent_id").using("btree", table.parentId.asc().nullsLast().op("uuid_ops")),
+    index("idx_child_profiles_parent_id").using(
+      "btree",
+      table.parentId.asc().nullsLast().op("uuid_ops"),
+    ),
     foreignKey({
       columns: [table.parentId],
       foreignColumns: [users.id],
       name: "child_profiles_parent_id_fkey",
     }).onDelete("cascade"),
     check("child_profiles_stars_check", sql`total_stars >= 0`),
-  ]
+  ],
 );
 
 export const preferences = pgTable(
@@ -141,7 +204,7 @@ export const preferences = pgTable(
       foreignColumns: [childProfiles.id],
       name: "preferences_child_id_fkey",
     }).onDelete("cascade"),
-  ]
+  ],
 );
 
 export const emotionLogs = pgTable(
@@ -160,15 +223,18 @@ export const emotionLogs = pgTable(
     index("idx_emotion_logs_child_id_created_at").using(
       "btree",
       table.childId.asc().nullsLast().op("uuid_ops"),
-      table.createdAt.desc().nullsFirst().op("timestamptz_ops")
+      table.createdAt.desc().nullsFirst().op("timestamptz_ops"),
     ),
     foreignKey({
       columns: [table.childId],
       foreignColumns: [childProfiles.id],
       name: "emotion_logs_child_id_fkey",
     }).onDelete("cascade"),
-    check("emotion_logs_duration_check", sql`duration_seconds > 0 OR duration_seconds IS NULL`),
-  ]
+    check(
+      "emotion_logs_duration_check",
+      sql`duration_seconds > 0 OR duration_seconds IS NULL`,
+    ),
+  ],
 );
 
 export const contents = pgTable(
@@ -192,9 +258,15 @@ export const contents = pgTable(
       foreignColumns: [users.id],
       name: "contents_created_by_fkey",
     }).onDelete("set null"),
-    check("contents_type_check", sql`type = ANY (ARRAY['LECTURE'::text, 'GAME'::text, 'QUIZ'::text])`),
-    check("contents_status_check", sql`status = ANY (ARRAY['DRAFT'::text, 'PUBLISHED'::text])`),
-  ]
+    check(
+      "contents_type_check",
+      sql`type = ANY (ARRAY['LECTURE'::text, 'GAME'::text, 'QUIZ'::text])`,
+    ),
+    check(
+      "contents_status_check",
+      sql`status = ANY (ARRAY['DRAFT'::text, 'PUBLISHED'::text])`,
+    ),
+  ],
 );
 
 export const lectures = pgTable(
@@ -212,8 +284,11 @@ export const lectures = pgTable(
       foreignColumns: [contents.id],
       name: "lectures_id_contents_fkey",
     }).onDelete("cascade"),
-    check("lectures_difficulty_check", sql`difficulty_level >= 1 AND difficulty_level <= 3`),
-  ]
+    check(
+      "lectures_difficulty_check",
+      sql`difficulty_level >= 1 AND difficulty_level <= 3`,
+    ),
+  ],
 );
 
 export const quizzes = pgTable(
@@ -232,8 +307,11 @@ export const quizzes = pgTable(
       foreignColumns: [contents.id],
       name: "quizzes_id_contents_fkey",
     }).onDelete("cascade"),
-    check("quizzes_difficulty_check", sql`difficulty_level >= 1 AND difficulty_level <= 3`),
-  ]
+    check(
+      "quizzes_difficulty_check",
+      sql`difficulty_level >= 1 AND difficulty_level <= 3`,
+    ),
+  ],
 );
 
 export const game = pgTable(
@@ -252,10 +330,13 @@ export const game = pgTable(
       foreignColumns: [contents.id],
       name: "game_id_contents_fkey",
     }).onDelete("cascade"),
-    check("game_difficulty_check", sql`difficulty_level >= 1 AND difficulty_level <= 3`),
+    check(
+      "game_difficulty_check",
+      sql`difficulty_level >= 1 AND difficulty_level <= 3`,
+    ),
     check("game_star_cost_check", sql`unlock_star_cost >= 0`),
     check("game_time_limit_check", sql`time_limit_seconds > 0`),
-  ]
+  ],
 );
 
 export const unlockContent = pgTable(
@@ -269,7 +350,10 @@ export const unlockContent = pgTable(
       .notNull(),
   },
   (table) => [
-    index("idx_unlock_content_child_id").using("btree", table.childId.asc().nullsLast().op("uuid_ops")),
+    index("idx_unlock_content_child_id").using(
+      "btree",
+      table.childId.asc().nullsLast().op("uuid_ops"),
+    ),
     foreignKey({
       columns: [table.childId],
       foreignColumns: [childProfiles.id],
@@ -281,7 +365,7 @@ export const unlockContent = pgTable(
       name: "unlock_content_content_id_fkey",
     }).onDelete("cascade"),
     unique("unlock_content_unique_pair").on(table.childId, table.contentId),
-  ]
+  ],
 );
 
 export const contentSessions = pgTable(
@@ -303,7 +387,7 @@ export const contentSessions = pgTable(
     index("idx_content_sessions_child_id_created_at").using(
       "btree",
       table.childId.asc().nullsLast().op("uuid_ops"),
-      table.createdAt.desc().nullsFirst().op("timestamptz_ops")
+      table.createdAt.desc().nullsFirst().op("timestamptz_ops"),
     ),
     foreignKey({
       columns: [table.childId],
@@ -315,9 +399,12 @@ export const contentSessions = pgTable(
       foreignColumns: [unlockContent.id],
       name: "content_sessions_unlock_id_fkey",
     }).onDelete("cascade"),
-    check("content_sessions_status_check", sql`status = ANY (ARRAY['COMPLETED'::text, 'ABANDONED'::text])`),
+    check(
+      "content_sessions_status_check",
+      sql`status = ANY (ARRAY['COMPLETED'::text, 'ABANDONED'::text])`,
+    ),
     check("content_sessions_stars_check", sql`stars_earned >= 0`),
-  ]
+  ],
 );
 
 export const pets = pgTable(
@@ -338,9 +425,12 @@ export const pets = pgTable(
       .notNull(),
   },
   (table) => [
-    check("pets_status_check", sql`status = ANY (ARRAY['ACTIVE'::text, 'HIDDEN'::text])`),
+    check(
+      "pets_status_check",
+      sql`status = ANY (ARRAY['ACTIVE'::text, 'HIDDEN'::text])`,
+    ),
     check("pets_star_cost_check", sql`unlock_star_cost >= 0`),
-  ]
+  ],
 );
 
 export const childPets = pgTable(
@@ -355,7 +445,10 @@ export const childPets = pgTable(
       .notNull(),
   },
   (table) => [
-    index("idx_child_pets_child_id").using("btree", table.childId.asc().nullsLast().op("uuid_ops")),
+    index("idx_child_pets_child_id").using(
+      "btree",
+      table.childId.asc().nullsLast().op("uuid_ops"),
+    ),
     foreignKey({
       columns: [table.childId],
       foreignColumns: [childProfiles.id],
@@ -367,5 +460,5 @@ export const childPets = pgTable(
       name: "child_pets_pet_id_fkey",
     }).onDelete("cascade"),
     unique("child_pets_unique_pair").on(table.childId, table.petId),
-  ]
+  ],
 );

@@ -1,7 +1,9 @@
 import { DrizzleQueryError } from "drizzle-orm/errors";
 
 export const PgErrorCode = {
+  FOREIGN_KEY_VIOLATION: "23503",
   UNIQUE_VIOLATION: "23505",
+  CHECK_VIOLATION: "23514",
   INVALID_TEXT_REPRESENTATION: "22P02",
 } as const;
 

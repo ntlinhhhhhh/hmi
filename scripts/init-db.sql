@@ -47,6 +47,25 @@ CREATE INDEX IF NOT EXISTS "idx_password_reset_codes_expires_at"
 CREATE INDEX IF NOT EXISTS "idx_password_reset_codes_user_id"
   ON "password_reset_codes" USING btree ("user_id" uuid_ops ASC NULLS LAST);
 
+CREATE TABLE IF NOT EXISTS "sessions" (
+  "id" uuid PRIMARY KEY NOT NULL,
+  "user_id" uuid NOT NULL,
+  "session_token_hash" text NOT NULL,
+  "created_at" timestamp with time zone DEFAULT now() NOT NULL,
+  "last_used_at" timestamp with time zone DEFAULT now() NOT NULL,
+  "expires_at" timestamp with time zone NOT NULL,
+  CONSTRAINT "sessions_user_id_fkey"
+    FOREIGN KEY ("user_id") REFERENCES "users" ("id") ON DELETE cascade,
+  CONSTRAINT "sessions_session_token_hash_key" UNIQUE ("session_token_hash"),
+  CONSTRAINT "sessions_expiry_check" CHECK ("expires_at" > "created_at")
+);
+
+CREATE INDEX IF NOT EXISTS "idx_sessions_expires_at"
+  ON "sessions" USING btree ("expires_at" timestamptz_ops ASC NULLS LAST);
+
+CREATE INDEX IF NOT EXISTS "idx_sessions_user_id"
+  ON "sessions" USING btree ("user_id" uuid_ops ASC NULLS LAST);
+
 CREATE TABLE IF NOT EXISTS "child_profiles" (
   "id" uuid PRIMARY KEY NOT NULL,
   "parent_id" uuid NOT NULL,

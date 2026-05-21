@@ -3,6 +3,7 @@ import { relations } from "drizzle-orm/relations";
 import {
   users,
   passwordResetCodes,
+  sessions,
   childProfiles,
   preferences,
   emotionLogs,
@@ -20,29 +21,43 @@ export const usersRelations = relations(users, ({ many }) => ({
   childProfiles: many(childProfiles),
   contents: many(contents),
   passwordResetCodes: many(passwordResetCodes),
+  sessions: many(sessions),
 }));
 
-export const passwordResetCodesRelations = relations(passwordResetCodes, ({ one }) => ({
+export const passwordResetCodesRelations = relations(
+  passwordResetCodes,
+  ({ one }) => ({
+    user: one(users, {
+      fields: [passwordResetCodes.userId],
+      references: [users.id],
+    }),
+  }),
+);
+
+export const sessionsRelations = relations(sessions, ({ one }) => ({
   user: one(users, {
-    fields: [passwordResetCodes.userId],
+    fields: [sessions.userId],
     references: [users.id],
   }),
 }));
 
-export const childProfilesRelations = relations(childProfiles, ({ one, many }) => ({
-  parent: one(users, {
-    fields: [childProfiles.parentId],
-    references: [users.id],
+export const childProfilesRelations = relations(
+  childProfiles,
+  ({ one, many }) => ({
+    parent: one(users, {
+      fields: [childProfiles.parentId],
+      references: [users.id],
+    }),
+    preferences: one(preferences, {
+      fields: [childProfiles.id],
+      references: [preferences.childId],
+    }),
+    emotionLogs: many(emotionLogs),
+    unlockContents: many(unlockContent),
+    contentSessions: many(contentSessions),
+    childPets: many(childPets),
   }),
-  preferences: one(preferences, {
-    fields: [childProfiles.id],
-    references: [preferences.childId],
-  }),
-  emotionLogs: many(emotionLogs),
-  unlockContents: many(unlockContent),
-  contentSessions: many(contentSessions),
-  childPets: many(childPets),
-}));
+);
 
 export const preferencesRelations = relations(preferences, ({ one }) => ({
   childProfile: one(childProfiles, {
@@ -99,28 +114,34 @@ export const gameRelations = relations(game, ({ one }) => ({
   }),
 }));
 
-export const unlockContentRelations = relations(unlockContent, ({ one, many }) => ({
-  childProfile: one(childProfiles, {
-    fields: [unlockContent.childId],
-    references: [childProfiles.id],
+export const unlockContentRelations = relations(
+  unlockContent,
+  ({ one, many }) => ({
+    childProfile: one(childProfiles, {
+      fields: [unlockContent.childId],
+      references: [childProfiles.id],
+    }),
+    content: one(contents, {
+      fields: [unlockContent.contentId],
+      references: [contents.id],
+    }),
+    contentSessions: many(contentSessions),
   }),
-  content: one(contents, {
-    fields: [unlockContent.contentId],
-    references: [contents.id],
-  }),
-  contentSessions: many(contentSessions),
-}));
+);
 
-export const contentSessionsRelations = relations(contentSessions, ({ one }) => ({
-  childProfile: one(childProfiles, {
-    fields: [contentSessions.childId],
-    references: [childProfiles.id],
+export const contentSessionsRelations = relations(
+  contentSessions,
+  ({ one }) => ({
+    childProfile: one(childProfiles, {
+      fields: [contentSessions.childId],
+      references: [childProfiles.id],
+    }),
+    unlockContent: one(unlockContent, {
+      fields: [contentSessions.unlockContentId],
+      references: [unlockContent.id],
+    }),
   }),
-  unlockContent: one(unlockContent, {
-    fields: [contentSessions.unlockContentId],
-    references: [unlockContent.id],
-  }),
-}));
+);
 
 export const petsRelations = relations(pets, ({ many }) => ({
   childPets: many(childPets),

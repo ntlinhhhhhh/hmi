@@ -15,22 +15,30 @@ export async function getUserById(db: DbExecutor, userId: string) {
   });
 }
 
-export async function createUser(db: DbExecutor, data: Omit<typeof users.$inferInsert, "id">) {
-  const [newUser] = await db.insert(users).values({
-    ...data,
-    id: randomUUID(),
-  }).returning();
-  
-  if (!newUser) throw new Error("[ERROR] Database returned no data after insert.");
+export async function createUser(
+  db: DbExecutor,
+  data: Omit<typeof users.$inferInsert, "id">,
+) {
+  const [newUser] = await db
+    .insert(users)
+    .values({
+      ...data,
+      id: randomUUID(),
+    })
+    .returning();
+
+  if (!newUser)
+    throw new Error("[ERROR] Database returned no data after insert.");
   return newUser;
 }
 
 export async function updateUserProfile(
   db: DbExecutor,
   userId: string,
-  data: Partial<Omit<typeof users.$inferInsert, "id" | "createdAt">>
+  data: Partial<Omit<typeof users.$inferInsert, "id" | "createdAt">>,
 ) {
-  const [updatedUser] = await db.update(users)
+  const [updatedUser] = await db
+    .update(users)
     .set({ ...data, updatedAt: sql`NOW()` })
     .where(eq(users.id, userId))
     .returning();
@@ -39,12 +47,29 @@ export async function updateUserProfile(
   return updatedUser;
 }
 
-export async function createPasswordResetCode(db: DbExecutor, data: Omit<typeof passwordResetCodes.$inferInsert, "id">) {
-  const [resetCode] = await db.insert(passwordResetCodes).values({
-    ...data,
-    id: randomUUID(),
-  }).returning();
-  
+export async function markUserLoggedIn(db: DbExecutor, userId: string) {
+  const [updatedUser] = await db
+    .update(users)
+    .set({ lastLoginAt: sql`NOW()`, updatedAt: sql`NOW()` })
+    .where(eq(users.id, userId))
+    .returning();
+
+  if (!updatedUser) throw new Error(`[ERROR] User ${userId} not found.`);
+  return updatedUser;
+}
+
+export async function createPasswordResetCode(
+  db: DbExecutor,
+  data: Omit<typeof passwordResetCodes.$inferInsert, "id">,
+) {
+  const [resetCode] = await db
+    .insert(passwordResetCodes)
+    .values({
+      ...data,
+      id: randomUUID(),
+    })
+    .returning();
+
   if (!resetCode) throw new Error("[ERROR] Failed to insert reset code.");
   return resetCode;
 }
@@ -54,17 +79,24 @@ export async function findValidResetCode(db: DbExecutor, codeHash: string) {
     where: and(
       eq(passwordResetCodes.codeHash, codeHash),
       sql`expires_at > NOW()`,
-      sql`used_at IS NULL`
+      sql`used_at IS NULL`,
     ),
   });
 }
 
-export async function updatePasswordTx(db: DbExecutor, userId: string, newPasswordHash: string, resetCodeId: string) {
-  await db.update(users)
+export async function updatePasswordTx(
+  db: DbExecutor,
+  userId: string,
+  newPasswordHash: string,
+  resetCodeId: string,
+) {
+  await db
+    .update(users)
     .set({ passwordHash: newPasswordHash, updatedAt: sql`NOW()` })
     .where(eq(users.id, userId));
 
-  await db.update(passwordResetCodes)
+  await db
+    .update(passwordResetCodes)
     .set({ usedAt: sql`NOW()` })
     .where(eq(passwordResetCodes.id, resetCodeId));
 }
