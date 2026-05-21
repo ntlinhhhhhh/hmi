@@ -1,6 +1,6 @@
 {
   "name": "hmi",
-  "module": "index.ts",
+  "module": "src/main.ts",
   "type": "module",
   "scripts": {
     "start": "bun run src/main.ts",
