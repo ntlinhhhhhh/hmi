@@ -1,5 +1,11 @@
 import { Elysia, t } from "elysia";
 import { changePassword } from "../usecases/auth/change_password.ts";
+import { googleSignIn } from "../usecases/auth/google_sign_in.ts";
+import {
+  requestPasswordReset,
+  verifyPasswordResetCode,
+  confirmPasswordReset,
+} from "../usecases/auth/password_reset.ts";
 import { signInParent } from "../usecases/auth/sign_in.ts";
 import { signOut } from "../usecases/auth/sign_out.ts";
 import { signUpParent } from "../usecases/auth/sign_up.ts";
@@ -165,6 +171,84 @@ const authRouter = withApiErrorHandler(new Elysia(), {
       body: t.Object({
         identifier: t.String(),
         password: t.String(),
+      }),
+    },
+  )
+  .post(
+    "/auth/google",
+    async ({ body, set }) => {
+      const user = await googleSignIn({
+        idToken: body.id_token,
+      });
+
+      set.status = 200;
+      return {
+        message: "Signed in with Google successfully.",
+        user: {
+          id: user.id,
+          email: user.email,
+          phone_number: user.phoneNumber,
+          full_name: user.fullName,
+          role: user.role,
+          status: user.status,
+          last_login_at: user.lastLoginAt,
+        },
+        session: {
+          id: user.sessionId,
+          session_token: user.sessionToken,
+          expires_at: user.expiresAt,
+        },
+      };
+    },
+    {
+      body: t.Object({
+        id_token: t.Optional(t.String()),
+      }),
+    },
+  )
+  .post(
+    "/auth/password-reset/request",
+    async ({ body, set }) => {
+      const result = await requestPasswordReset(body.identifier);
+      set.status = 200;
+      return result;
+    },
+    {
+      body: t.Object({
+        identifier: t.String(),
+      }),
+    },
+  )
+  .post(
+    "/auth/password-reset/verify",
+    async ({ body, set }) => {
+      const result = await verifyPasswordResetCode(body.identifier, body.otp);
+      set.status = 200;
+      return result;
+    },
+    {
+      body: t.Object({
+        identifier: t.String(),
+        otp: t.String(),
+      }),
+    },
+  )
+  .post(
+    "/auth/password-reset/confirm",
+    async ({ body, set }) => {
+      const result = await confirmPasswordReset(
+        body.identifier,
+        body.reset_token,
+        body.new_password,
+      );
+      set.status = 200;
+      return result;
+    },
+    {
+      body: t.Object({
+        identifier: t.String(),
+        reset_token: t.String(),
+        new_password: t.String(),
       }),
     },
   )

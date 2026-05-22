@@ -11,6 +11,7 @@
   "devDependencies": {
     "@types/bun": "latest",
     "@types/jsonwebtoken": "^9.0.10",
+    "@types/nodemailer": "^8.0.0",
     "drizzle-kit": "^0.31.10",
     "prettier": "^3.8.3"
   },
@@ -22,7 +23,9 @@
     "@aws-sdk/s3-request-presigner": "^3.1052.0",
     "drizzle-orm": "^0.45.2",
     "elysia": "^1.4.28",
+    "google-auth-library": "^10.6.2",
     "jsonwebtoken": "^9.0.3",
+    "nodemailer": "^8.0.7",
     "postgres": "^3.4.9"
   }
 }

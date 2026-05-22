@@ -141,6 +141,91 @@ POST /auth/signup
 - [400 Bad Request] - Possible `type` values: INVALID_JSON, MISSING_EMAIL, INVALID_EMAIL, MISSING_PASSWORD, WEAK_PASSWORD, INVALID_PHONE_NUMBER, INVALID_FULL_NAME.
 - [409 Conflict] - Possible `type` values: EMAIL_TAKEN, PHONE_NUMBER_TAKEN, IDENTIFIER_ALREADY_IN_USE.
 
+## Google Sign-in
+
+- Endpoint:
+
+```text
+POST /auth/google
+```
+
+- Description: Authenticates a parent using a Google ID token or authorization code and creates a new persisted login session.
+- Auth required: No
+
+### Request body (application/json):
+
+- id_token (string, Optional): Google ID token.
+- authorization_code (string, Optional): Google authorization code.
+- Note: At least one must be provided.
+
+### Responses:
+
+- [200 OK] - Signed in with Google successfully. (Returns session and user objects)
+- [400 Bad Request] - MISSING_TOKEN
+- [401 Unauthorized] - INVALID_TOKEN
+
+## Password Reset Request
+
+- Endpoint:
+
+```text
+POST /auth/password-reset/request
+```
+
+- Description: Requests a password reset code (OTP) sent via email.
+- Auth required: No
+
+### Request body (application/json):
+
+- identifier (string, Required): Parent email or phone number.
+
+### Responses:
+
+- [200 OK] - Returns success message (to prevent user enumeration).
+
+## Password Reset Verify
+
+- Endpoint:
+
+```text
+POST /auth/password-reset/verify
+```
+
+- Description: Verifies the OTP sent via email and returns a reset token.
+- Auth required: No
+
+### Request body (application/json):
+
+- identifier (string, Required): Parent email or phone number.
+- otp (string, Required): The 6-digit code.
+
+### Responses:
+
+- [200 OK] - Code verified successfully. Returns a `reset_token`.
+- [400 Bad Request] - INVALID_CODE.
+
+## Password Reset Confirm
+
+- Endpoint:
+
+```text
+POST /auth/password-reset/confirm
+```
+
+- Description: Sets a new password using a verified reset token.
+- Auth required: No
+
+### Request body (application/json):
+
+- identifier (string, Required): Parent email or phone number.
+- reset_token (string, Required): The reset token obtained from the verify step.
+- new_password (string, Required): New password, at least 8 characters.
+
+### Responses:
+
+- [200 OK] - Password updated successfully.
+- [400 Bad Request] - WEAK_PASSWORD, INVALID_CODE.
+
 ## Sign in
 
 - Endpoint:
