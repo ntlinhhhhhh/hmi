@@ -1,8 +1,14 @@
-import { db } from "../../db/client.ts";
-import { createUser, findUserByIdentifier } from "../../db/queries/user_queries.ts";
+import { db, withTx } from "../../db/client.ts";
+import { createSession } from "../../db/queries/session_queries.ts";
+import {
+  createUser,
+  findUserByIdentifier,
+  markUserLoggedIn,
+} from "../../db/queries/user_queries.ts";
 import { isValidEmail } from "../../utils/validation.ts";
 import { AppError } from "../app_error.ts";
 import { getPgConstraintName, isPgErrorCode, PgErrorCode } from "../postgres_error.ts";
+import { generateSessionToken, hashSessionToken, readSessionTtlMs } from "./session_token.ts";
 
 export type SignUpErrorType =
   | "MISSING_EMAIL"
@@ -24,12 +30,16 @@ export type SignUpParentInput = {
 };
 
 export type SignUpParentResult = {
+  sessionId: string;
+  sessionToken: string;
+  expiresAt: string;
   id: string;
   email: string;
   phoneNumber: string | null;
   fullName: string | null;
   role: string;
   status: string;
+  lastLoginAt: string | null;
   createdAt: string;
 };
 
@@ -112,6 +122,10 @@ function mapUniqueViolation(error: unknown): AppError<SignUpErrorType> {
     );
   }
 
+  if (constraint && !constraint.startsWith("users_")) {
+    return new AppError<SignUpErrorType>("INTERNAL_ERROR", "Internal server error.", 500);
+  }
+
   return new AppError<SignUpErrorType>(
     "IDENTIFIER_ALREADY_IN_USE",
     "Email or phone number is already in use.",
@@ -146,23 +160,41 @@ export async function signUpParent(input: SignUpParentInput): Promise<SignUpPare
       algorithm: "argon2id",
     });
 
-    const user = await createUser(db, {
-      email,
-      passwordHash,
-      phoneNumber,
-      fullName,
-      authProvider: "LOCAL",
-      role: "PARENT",
-      status: "ACTIVE",
+    const sessionToken = generateSessionToken();
+    const expiresAt = new Date(Date.now() + readSessionTtlMs()).toISOString();
+
+    const { user, session } = await withTx(async (tx) => {
+      const createdUser = await createUser(tx, {
+        email,
+        passwordHash,
+        phoneNumber,
+        fullName,
+        authProvider: "LOCAL",
+        role: "PARENT",
+        status: "ACTIVE",
+      });
+
+      const user = await markUserLoggedIn(tx, createdUser.id);
+      const session = await createSession(tx, {
+        userId: user.id,
+        sessionTokenHash: hashSessionToken(sessionToken),
+        expiresAt,
+      });
+
+      return { user, session };
     });
 
     return {
+      sessionId: session.id,
+      sessionToken,
+      expiresAt: session.expiresAt,
       id: user.id,
       email: user.email,
       phoneNumber: user.phoneNumber ?? null,
       fullName: user.fullName ?? null,
       role: user.role,
       status: user.status,
+      lastLoginAt: user.lastLoginAt ?? null,
       createdAt: user.createdAt,
     };
   } catch (error: unknown) {

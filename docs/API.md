@@ -35,7 +35,7 @@
 
 # Authentication:
 
-Authenticated endpoints require a persisted session token returned by `POST /auth/signin`.
+Authenticated endpoints require a persisted session token returned by `POST /auth/signup` or `POST /auth/signin`.
 
 ```http
 Authorization: Bearer <session_token>
@@ -91,7 +91,7 @@ GET /health
 POST /auth/signup
 ```
 
-- Description: Creates a parent account using email and password authentication.
+- Description: Creates a parent account using mandatory email/password credentials and immediately creates a persisted login session. Phone number is optional.
 - Auth required: No
 
 ### Request body (application/json):
@@ -125,7 +125,13 @@ POST /auth/signup
     "full_name": "Jane Parent",
     "role": "PARENT",
     "status": "ACTIVE",
+    "last_login_at": "2026-05-21T07:14:22.170Z",
     "created_at": "2026-05-21T07:14:22.170Z"
+  },
+  "session": {
+    "id": "223e4567-e89b-12d3-a456-426614174000",
+    "session_token": "hmi_session_token_value",
+    "expires_at": "2026-06-20T07:14:22.170Z"
   }
 }
 ```
@@ -272,6 +278,7 @@ POST /children
 - nickname (string, Required): Child display nickname. Must be 80 characters or fewer.
 - birth_year (number, Required): Child birth year. Must be an integer from current year minus 18 through current year.
 - avatar (file, Optional): Child avatar image. Supported types: JPEG, PNG, WebP, GIF, AVIF. Maximum size: 5 MB.
+- Note: `birth_year` is create-only from the frontend. Future child profile update endpoints must not allow frontend birth-year mutation.
 - Example:
 
 ```text
@@ -363,7 +370,7 @@ GET /children
 POST /children/:childId/emotion-logs
 ```
 
-- Description: Records an emotion event for a child profile owned by the authenticated parent.
+- Description: Records a derived emotion event for a child profile owned by the authenticated parent. The backend stores the event only; AI/computer-vision inference runs outside this service.
 - Auth required: Yes
 
 ### Request parameters:

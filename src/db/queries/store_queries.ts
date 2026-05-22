@@ -1,11 +1,11 @@
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, isNull, sql } from "drizzle-orm";
 import type { DbExecutor } from "../client";
 import { pets, childPets, childProfiles, unlockContent } from "../schema";
 import { randomUUID } from "crypto";
 
 export async function getActiveStorePets(db: DbExecutor) {
   return await db.query.pets.findMany({
-    where: eq(pets.status, "ACTIVE"),
+    where: and(eq(pets.status, "ACTIVE"), isNull(pets.deletedAt)),
     orderBy: (pets, { asc }) => [asc(pets.unlockStarCost)],
   });
 }

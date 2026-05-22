@@ -4,6 +4,7 @@ import {
   timestamp,
   boolean,
   index,
+  uniqueIndex,
   unique,
   check,
   uuid,
@@ -26,7 +27,7 @@ const citext = customType<{ data: string }>({
 export interface PreferencesMetadata {
   theme?: string;
   volume?: number;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 // Tables
@@ -236,8 +237,14 @@ export const contents = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" })
       .defaultNow()
       .notNull(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true, mode: "string" }),
   },
   (table) => [
+    index("idx_contents_status_deleted_at").using(
+      "btree",
+      table.status.asc().nullsLast().op("text_ops"),
+      table.deletedAt.asc().nullsLast().op("timestamptz_ops"),
+    ),
     foreignKey({
       columns: [table.createdBy],
       foreignColumns: [users.id],
@@ -362,6 +369,9 @@ export const contentSessions = pgTable(
       table.childId.asc().nullsLast().op("uuid_ops"),
       table.createdAt.desc().nullsFirst().op("timestamptz_ops"),
     ),
+    uniqueIndex("content_sessions_one_reward_per_content_idx")
+      .on(table.childId, table.unlockContentId)
+      .where(sql`status = 'COMPLETED' AND stars_earned > 0`),
     foreignKey({
       columns: [table.childId],
       foreignColumns: [childProfiles.id],
@@ -396,8 +406,14 @@ export const pets = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" })
       .defaultNow()
       .notNull(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true, mode: "string" }),
   },
   (table) => [
+    index("idx_pets_status_deleted_at").using(
+      "btree",
+      table.status.asc().nullsLast().op("text_ops"),
+      table.deletedAt.asc().nullsLast().op("timestamptz_ops"),
+    ),
     check("pets_status_check", sql`status = ANY (ARRAY['ACTIVE'::text, 'HIDDEN'::text])`),
     check("pets_star_cost_check", sql`unlock_star_cost >= 0`),
   ],

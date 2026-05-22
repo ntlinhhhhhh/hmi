@@ -120,6 +120,7 @@ CREATE TABLE IF NOT EXISTS "contents" (
   "created_by" uuid,
   "created_at" timestamp with time zone DEFAULT now() NOT NULL,
   "updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+  "deleted_at" timestamp with time zone,
   CONSTRAINT "contents_created_by_fkey"
     FOREIGN KEY ("created_by") REFERENCES "users" ("id") ON DELETE set null,
   CONSTRAINT "contents_type_check"
@@ -127,6 +128,14 @@ CREATE TABLE IF NOT EXISTS "contents" (
   CONSTRAINT "contents_status_check"
     CHECK ("status" = ANY (ARRAY['DRAFT'::text, 'PUBLISHED'::text]))
 );
+
+ALTER TABLE "contents" ADD COLUMN IF NOT EXISTS "deleted_at" timestamp with time zone;
+
+CREATE INDEX IF NOT EXISTS "idx_contents_status_deleted_at"
+  ON "contents" USING btree (
+    "status" text_ops ASC NULLS LAST,
+    "deleted_at" timestamptz_ops ASC NULLS LAST
+  );
 
 CREATE TABLE IF NOT EXISTS "lectures" (
   "id" uuid PRIMARY KEY NOT NULL,
@@ -208,6 +217,10 @@ CREATE INDEX IF NOT EXISTS "idx_content_sessions_child_id_created_at"
     "created_at" timestamptz_ops DESC NULLS FIRST
   );
 
+CREATE UNIQUE INDEX IF NOT EXISTS "content_sessions_one_reward_per_content_idx"
+  ON "content_sessions" USING btree ("child_id", "unlock_content_id")
+  WHERE "status" = 'COMPLETED' AND "stars_earned" > 0;
+
 CREATE TABLE IF NOT EXISTS "pets" (
   "id" uuid PRIMARY KEY NOT NULL,
   "name" text NOT NULL,
@@ -218,10 +231,19 @@ CREATE TABLE IF NOT EXISTS "pets" (
   "status" text DEFAULT 'ACTIVE' NOT NULL,
   "created_at" timestamp with time zone DEFAULT now() NOT NULL,
   "updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+  "deleted_at" timestamp with time zone,
   CONSTRAINT "pets_status_check"
     CHECK ("status" = ANY (ARRAY['ACTIVE'::text, 'HIDDEN'::text])),
   CONSTRAINT "pets_star_cost_check" CHECK ("unlock_star_cost" >= 0)
 );
+
+ALTER TABLE "pets" ADD COLUMN IF NOT EXISTS "deleted_at" timestamp with time zone;
+
+CREATE INDEX IF NOT EXISTS "idx_pets_status_deleted_at"
+  ON "pets" USING btree (
+    "status" text_ops ASC NULLS LAST,
+    "deleted_at" timestamptz_ops ASC NULLS LAST
+  );
 
 CREATE TABLE IF NOT EXISTS "child_pets" (
   "id" uuid PRIMARY KEY NOT NULL,

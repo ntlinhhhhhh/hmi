@@ -58,7 +58,13 @@ const authRouter = withApiErrorHandler(new Elysia(), {
           full_name: user.fullName,
           role: user.role,
           status: user.status,
+          last_login_at: user.lastLoginAt,
           created_at: user.createdAt,
+        },
+        session: {
+          id: user.sessionId,
+          session_token: user.sessionToken,
+          expires_at: user.expiresAt,
         },
       };
     },

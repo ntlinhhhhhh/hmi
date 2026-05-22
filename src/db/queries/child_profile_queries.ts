@@ -1,4 +1,4 @@
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, isNull, sql } from "drizzle-orm";
 import type { DbExecutor } from "../client";
 import {
   childProfiles,
@@ -8,6 +8,7 @@ import {
   lectures,
   quizzes,
   childPets,
+  contents,
 } from "../schema";
 import { randomUUID } from "crypto";
 
@@ -41,15 +42,39 @@ export async function createChildProfileTx(
   const defaultLectures = await db
     .select({ id: lectures.id })
     .from(lectures)
-    .where(and(eq(lectures.difficultyLevel, targetDifficulty), eq(lectures.isDefault, true)));
+    .innerJoin(contents, eq(contents.id, lectures.id))
+    .where(
+      and(
+        eq(lectures.difficultyLevel, targetDifficulty),
+        eq(lectures.isDefault, true),
+        eq(contents.status, "PUBLISHED"),
+        isNull(contents.deletedAt),
+      ),
+    );
   const defaultQuizzes = await db
     .select({ id: quizzes.id })
     .from(quizzes)
-    .where(and(eq(quizzes.difficultyLevel, targetDifficulty), eq(quizzes.isDefault, true)));
+    .innerJoin(contents, eq(contents.id, quizzes.id))
+    .where(
+      and(
+        eq(quizzes.difficultyLevel, targetDifficulty),
+        eq(quizzes.isDefault, true),
+        eq(contents.status, "PUBLISHED"),
+        isNull(contents.deletedAt),
+      ),
+    );
   const defaultGames = await db
     .select({ id: game.id })
     .from(game)
-    .where(and(eq(game.difficultyLevel, targetDifficulty), eq(game.isDefault, true)));
+    .innerJoin(contents, eq(contents.id, game.id))
+    .where(
+      and(
+        eq(game.difficultyLevel, targetDifficulty),
+        eq(game.isDefault, true),
+        eq(contents.status, "PUBLISHED"),
+        isNull(contents.deletedAt),
+      ),
+    );
 
   const contentIdsToUnlock = [
     ...defaultLectures.map((l) => l.id),
@@ -73,7 +98,10 @@ export async function updateChildProfile(
   db: DbExecutor,
   childId: string,
   data: Partial<
-    Omit<typeof childProfiles.$inferInsert, "id" | "parentId" | "totalStars" | "createdAt">
+    Omit<
+      typeof childProfiles.$inferInsert,
+      "id" | "parentId" | "birthYear" | "totalStars" | "createdAt"
+    >
   >,
 ) {
   const [updatedChild] = await db

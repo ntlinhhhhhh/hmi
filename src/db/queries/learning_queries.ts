@@ -1,11 +1,19 @@
-import { eq, and, desc, sql } from "drizzle-orm";
+import { eq, and, desc, exists, gt, isNull, sql } from "drizzle-orm";
 import type { DbExecutor } from "../client";
 import { contents, contentSessions, childProfiles, unlockContent } from "../schema";
 import { randomUUID } from "crypto";
 
 export async function getUnlockedContentsByChildId(db: DbExecutor, childId: string) {
   return await db.query.unlockContent.findMany({
-    where: eq(unlockContent.childId, childId),
+    where: and(
+      eq(unlockContent.childId, childId),
+      exists(
+        db
+          .select({ id: contents.id })
+          .from(contents)
+          .where(and(eq(contents.id, unlockContent.contentId), isNull(contents.deletedAt))),
+      ),
+    ),
     with: {
       content: {
         with: { lecture: true, quiz: true, game: true },
@@ -17,7 +25,7 @@ export async function getUnlockedContentsByChildId(db: DbExecutor, childId: stri
 
 export async function getContentDetailsById(db: DbExecutor, contentId: string) {
   const contentDetail = await db.query.contents.findFirst({
-    where: eq(contents.id, contentId),
+    where: and(eq(contents.id, contentId), isNull(contents.deletedAt)),
     with: { lecture: true, quiz: true, game: true },
   });
 
@@ -49,21 +57,49 @@ export async function finishContentSessionTx(
   sessionData: Omit<typeof contentSessions.$inferInsert, "id">,
   earnedStars: number,
 ) {
+  if (!Number.isInteger(earnedStars) || earnedStars < 0) {
+    throw new Error("[ERROR] earnedStars must be a non-negative integer.");
+  }
+
+  const sessionStatus = sessionData.status ?? "COMPLETED";
+  let effectiveEarnedStars = sessionStatus === "COMPLETED" ? earnedStars : 0;
+
+  if (effectiveEarnedStars > 0) {
+    const rewardLockKey = `content-session-reward:${sessionData.childId}:${sessionData.unlockContentId}`;
+    await db.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${rewardLockKey}))`);
+
+    const existingRewardedSession = await db.query.contentSessions.findFirst({
+      columns: { id: true },
+      where: and(
+        eq(contentSessions.childId, sessionData.childId),
+        eq(contentSessions.unlockContentId, sessionData.unlockContentId),
+        eq(contentSessions.status, "COMPLETED"),
+        gt(contentSessions.starsEarned, 0),
+      ),
+    });
+
+    if (existingRewardedSession) {
+      effectiveEarnedStars = 0;
+    }
+  }
+
   const [session] = await db
     .insert(contentSessions)
     .values({
       ...sessionData,
       id: randomUUID(),
+      status: sessionStatus,
+      starsEarned: effectiveEarnedStars,
     })
     .returning();
 
   if (!session) throw new Error("[ERROR] Failed to insert content session.");
 
-  if (sessionData.status === "COMPLETED" && earnedStars > 0) {
+  if (effectiveEarnedStars > 0) {
     const [updatedProfile] = await db
       .update(childProfiles)
       .set({
-        totalStars: sql`${childProfiles.totalStars} + ${earnedStars}`,
+        totalStars: sql`${childProfiles.totalStars} + ${effectiveEarnedStars}`,
         updatedAt: sql`NOW()`,
       })
       .where(eq(childProfiles.id, sessionData.childId))
