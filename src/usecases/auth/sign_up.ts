@@ -1,15 +1,8 @@
 import { db } from "../../db/client.ts";
-import {
-  createUser,
-  findUserByIdentifier,
-} from "../../db/queries/user_queries.ts";
+import { createUser, findUserByIdentifier } from "../../db/queries/user_queries.ts";
 import { isValidEmail } from "../../utils/validation.ts";
 import { AppError } from "../app_error.ts";
-import {
-  getPgConstraintName,
-  isPgErrorCode,
-  PgErrorCode,
-} from "../postgres_error.ts";
+import { getPgConstraintName, isPgErrorCode, PgErrorCode } from "../postgres_error.ts";
 
 export type SignUpErrorType =
   | "MISSING_EMAIL"
@@ -44,19 +37,11 @@ function normalizeEmail(email: string): string {
   const value = email.trim().toLowerCase();
 
   if (!value) {
-    throw new AppError<SignUpErrorType>(
-      "MISSING_EMAIL",
-      "Email is required.",
-      400,
-    );
+    throw new AppError<SignUpErrorType>("MISSING_EMAIL", "Email is required.", 400);
   }
 
   if (!isValidEmail(value)) {
-    throw new AppError<SignUpErrorType>(
-      "INVALID_EMAIL",
-      "Invalid email format.",
-      400,
-    );
+    throw new AppError<SignUpErrorType>("INVALID_EMAIL", "Invalid email format.", 400);
   }
 
   return value;
@@ -64,11 +49,7 @@ function normalizeEmail(email: string): string {
 
 function validatePassword(password: string): string {
   if (!password) {
-    throw new AppError<SignUpErrorType>(
-      "MISSING_PASSWORD",
-      "Password is required.",
-      400,
-    );
+    throw new AppError<SignUpErrorType>("MISSING_PASSWORD", "Password is required.", 400);
   }
 
   if (password.length < 8) {
@@ -82,9 +63,7 @@ function validatePassword(password: string): string {
   return password;
 }
 
-function normalizePhoneNumber(
-  phoneNumber: string | undefined,
-): string | undefined {
+function normalizePhoneNumber(phoneNumber: string | undefined): string | undefined {
   if (phoneNumber === undefined) return undefined;
 
   const value = phoneNumber.trim().replace(/[\s().-]/g, "");
@@ -122,11 +101,7 @@ function mapUniqueViolation(error: unknown): AppError<SignUpErrorType> {
   const constraint = getPgConstraintName(error);
 
   if (constraint === "users_email_key") {
-    return new AppError<SignUpErrorType>(
-      "EMAIL_TAKEN",
-      "Email is already in use.",
-      409,
-    );
+    return new AppError<SignUpErrorType>("EMAIL_TAKEN", "Email is already in use.", 409);
   }
 
   if (constraint === "users_phone_number_key") {
@@ -144,9 +119,7 @@ function mapUniqueViolation(error: unknown): AppError<SignUpErrorType> {
   );
 }
 
-export async function signUpParent(
-  input: SignUpParentInput,
-): Promise<SignUpParentResult> {
+export async function signUpParent(input: SignUpParentInput): Promise<SignUpParentResult> {
   const email = normalizeEmail(input.email);
   const password = validatePassword(input.password);
   const phoneNumber = normalizePhoneNumber(input.phoneNumber);
@@ -155,11 +128,7 @@ export async function signUpParent(
   try {
     const existingEmail = await findUserByIdentifier(db, email);
     if (existingEmail) {
-      throw new AppError<SignUpErrorType>(
-        "EMAIL_TAKEN",
-        "Email is already in use.",
-        409,
-      );
+      throw new AppError<SignUpErrorType>("EMAIL_TAKEN", "Email is already in use.", 409);
     }
 
     if (phoneNumber) {
@@ -205,14 +174,7 @@ export async function signUpParent(
       throw mapUniqueViolation(error);
     }
 
-    console.error(
-      "[ERROR] Unexpected error in use case: Sign up parent",
-      error,
-    );
-    throw new AppError<SignUpErrorType>(
-      "INTERNAL_ERROR",
-      "Internal server error.",
-      500,
-    );
+    console.error("[ERROR] Unexpected error in use case: Sign up parent", error);
+    throw new AppError<SignUpErrorType>("INTERNAL_ERROR", "Internal server error.", 500);
   }
 }

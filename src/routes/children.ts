@@ -9,11 +9,19 @@ const protectedChildrenRouter = new Elysia()
   .post(
     "/children",
     async ({ authUserId, body, set }) => {
+      const avatar = body.avatar
+        ? {
+            buffer: new Uint8Array(await body.avatar.arrayBuffer()),
+            contentType: body.avatar.type,
+            size: body.avatar.size,
+          }
+        : undefined;
+
       const child = await createChildProfile({
         parentId: authUserId,
         nickname: body.nickname,
-        birthYear: body.birth_year,
-        avatarUrl: body.avatar_url,
+        birthYear: Number(body.birth_year),
+        avatar,
       });
 
       set.status = 201;
@@ -32,10 +40,11 @@ const protectedChildrenRouter = new Elysia()
       };
     },
     {
+      parse: "formdata",
       body: t.Object({
         nickname: t.String(),
-        birth_year: t.Number(),
-        avatar_url: t.Optional(t.String()),
+        birth_year: t.Numeric(),
+        avatar: t.Optional(t.File()),
       }),
     },
   )
@@ -64,7 +73,7 @@ const protectedChildrenRouter = new Elysia()
   });
 
 const childrenRouter = withApiErrorHandler(new Elysia(), {
-  validationErrorType: "INVALID_JSON",
+  validationErrorType: "INVALID_FORM_DATA",
 }).use(protectedChildrenRouter);
 
 export default childrenRouter;

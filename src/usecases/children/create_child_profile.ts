@@ -2,13 +2,10 @@ import { randomUUID } from "crypto";
 import { db, withTx } from "../../db/client.ts";
 import { createChildProfileTx } from "../../db/queries/child_profile_queries.ts";
 import { getUserById } from "../../db/queries/user_queries.ts";
+import { deleteFile, getFileUrl, uploadFile } from "../../storage/s3.ts";
 import { isValidUuid } from "../../utils/validation.ts";
 import { AppError } from "../app_error.ts";
-import {
-  getPgConstraintName,
-  isPgErrorCode,
-  PgErrorCode,
-} from "../postgres_error.ts";
+import { getPgConstraintName, isPgErrorCode, PgErrorCode } from "../postgres_error.ts";
 
 export type CreateChildProfileErrorType =
   | "MISSING_PARENT_ID"
@@ -17,15 +14,23 @@ export type CreateChildProfileErrorType =
   | "PARENT_NOT_ACTIVE"
   | "MISSING_NICKNAME"
   | "INVALID_NICKNAME"
-  | "INVALID_AVATAR_URL"
+  | "INVALID_AVATAR_FILE"
+  | "AVATAR_TOO_LARGE"
+  | "STORAGE_ERROR"
   | "INVALID_BIRTH_YEAR"
   | "INTERNAL_ERROR";
+
+type UploadedAvatar = {
+  buffer: Uint8Array;
+  contentType: string;
+  size: number;
+};
 
 export type CreateChildProfileInput = {
   parentId: string;
   nickname: string;
   birthYear: number;
-  avatarUrl?: string;
+  avatar?: UploadedAvatar;
 };
 
 export type ChildProfileResult = {
@@ -83,31 +88,54 @@ function normalizeNickname(nickname: string): string {
   return value;
 }
 
-function normalizeAvatarUrl(avatarUrl: string | undefined): string | undefined {
-  if (avatarUrl === undefined) return undefined;
+const avatarContentTypes = new Map<string, string>([
+  ["image/jpeg", "jpg"],
+  ["image/png", "png"],
+  ["image/webp", "webp"],
+  ["image/gif", "gif"],
+  ["image/avif", "avif"],
+]);
 
-  const value = avatarUrl.trim();
-  if (!value) return undefined;
+const maxAvatarBytes = 5 * 1024 * 1024;
 
-  if (value.length > 2048) {
+type NormalizedAvatar = UploadedAvatar & {
+  extension: string;
+};
+
+function normalizeAvatar(avatar: UploadedAvatar | undefined): NormalizedAvatar | undefined {
+  if (avatar === undefined) return undefined;
+
+  const contentType = avatar.contentType.trim().toLowerCase();
+  const extension = avatarContentTypes.get(contentType);
+
+  if (!extension || avatar.size <= 0) {
     throw new AppError<CreateChildProfileErrorType>(
-      "INVALID_AVATAR_URL",
-      "Avatar URL is too long.",
+      "INVALID_AVATAR_FILE",
+      "Avatar must be a valid image file.",
       400,
     );
   }
 
-  return value;
+  if (avatar.size > maxAvatarBytes || avatar.buffer.byteLength > maxAvatarBytes) {
+    throw new AppError<CreateChildProfileErrorType>(
+      "AVATAR_TOO_LARGE",
+      "Avatar file must be 5 MB or smaller.",
+      413,
+    );
+  }
+
+  return {
+    buffer: avatar.buffer,
+    contentType,
+    size: avatar.size,
+    extension,
+  };
 }
 
 function validateBirthYear(birthYear: number): number {
   const currentYear = new Date().getFullYear();
 
-  if (
-    !Number.isInteger(birthYear) ||
-    birthYear < currentYear - 18 ||
-    birthYear > currentYear
-  ) {
+  if (!Number.isInteger(birthYear) || birthYear < currentYear - 18 || birthYear > currentYear) {
     throw new AppError<CreateChildProfileErrorType>(
       "INVALID_BIRTH_YEAR",
       `Birth year must be between ${currentYear - 18} and ${currentYear}.`,
@@ -125,12 +153,35 @@ function getTargetDifficulty(birthYear: number): number {
   return 3;
 }
 
-function toChildProfileResult(child: ChildProfileResult): ChildProfileResult {
+async function uploadAvatar(
+  parentId: string,
+  childId: string,
+  avatar: NormalizedAvatar | undefined,
+): Promise<string | null> {
+  if (!avatar) return null;
+
+  const objectKey = `child-avatars/${parentId}/${childId}.${avatar.extension}`;
+
+  try {
+    await uploadFile(objectKey, avatar.buffer, avatar.contentType);
+  } catch (error) {
+    console.error("[ERROR] Failed to upload child avatar to S3", error);
+    throw new AppError<CreateChildProfileErrorType>(
+      "STORAGE_ERROR",
+      "Failed to upload avatar.",
+      502,
+    );
+  }
+
+  return objectKey;
+}
+
+async function toChildProfileResult(child: ChildProfileResult): Promise<ChildProfileResult> {
   return {
     id: child.id,
     parentId: child.parentId,
     nickname: child.nickname,
-    avatarUrl: child.avatarUrl ?? null,
+    avatarUrl: child.avatarUrl ? await getFileUrl(child.avatarUrl) : null,
     birthYear: child.birthYear,
     totalStars: child.totalStars,
     createdAt: child.createdAt,
@@ -144,8 +195,11 @@ export async function createChildProfile(
   const parentId = normalizeParentId(input.parentId);
   const nickname = normalizeNickname(input.nickname);
   const birthYear = validateBirthYear(input.birthYear);
-  const avatarUrl = normalizeAvatarUrl(input.avatarUrl);
+  const avatar = normalizeAvatar(input.avatar);
   const targetDifficulty = getTargetDifficulty(birthYear);
+  const childId = randomUUID();
+  let uploadedAvatarKey: string | null = null;
+  let childCreated = false;
 
   try {
     const parent = await getUserById(db, parentId);
@@ -166,22 +220,31 @@ export async function createChildProfile(
       );
     }
 
+    uploadedAvatarKey = await uploadAvatar(parentId, childId, avatar);
+
     const child = await withTx(async (tx) =>
       createChildProfileTx(
         tx,
         {
-          id: randomUUID(),
+          id: childId,
           parentId,
           nickname,
-          avatarUrl,
+          avatarUrl: uploadedAvatarKey,
           birthYear,
         },
         targetDifficulty,
       ),
     );
+    childCreated = true;
 
-    return toChildProfileResult(child);
+    return await toChildProfileResult(child);
   } catch (error: unknown) {
+    if (uploadedAvatarKey && !childCreated) {
+      void deleteFile(uploadedAvatarKey).catch((cleanupError: unknown) => {
+        console.error("[WARN] Failed to delete orphaned child avatar from S3", cleanupError);
+      });
+    }
+
     if (error instanceof AppError) {
       throw error;
     }
@@ -197,10 +260,7 @@ export async function createChildProfile(
       );
     }
 
-    console.error(
-      "[ERROR] Unexpected error in use case: Create child profile",
-      error,
-    );
+    console.error("[ERROR] Unexpected error in use case: Create child profile", error);
     throw new AppError<CreateChildProfileErrorType>(
       "INTERNAL_ERROR",
       "Internal server error.",

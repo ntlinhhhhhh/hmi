@@ -19,10 +19,7 @@ export async function createSession(
   return session;
 }
 
-export async function getActiveSessionByTokenHash(
-  db: DbExecutor,
-  sessionTokenHash: string,
-) {
+export async function getActiveSessionByTokenHash(db: DbExecutor, sessionTokenHash: string) {
   const [session] = await db
     .select({
       id: sessions.id,
@@ -41,12 +38,7 @@ export async function getActiveSessionByTokenHash(
     })
     .from(sessions)
     .innerJoin(users, eq(users.id, sessions.userId))
-    .where(
-      and(
-        eq(sessions.sessionTokenHash, sessionTokenHash),
-        gt(sessions.expiresAt, sql`NOW()`),
-      ),
-    )
+    .where(and(eq(sessions.sessionTokenHash, sessionTokenHash), gt(sessions.expiresAt, sql`NOW()`)))
     .limit(1);
 
   return session ?? null;

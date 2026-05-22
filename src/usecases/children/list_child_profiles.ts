@@ -1,6 +1,7 @@
 import { db } from "../../db/client.ts";
 import { getChildrenByParentId } from "../../db/queries/child_profile_queries.ts";
 import { getUserById } from "../../db/queries/user_queries.ts";
+import { getFileUrl } from "../../storage/s3.ts";
 import { isValidUuid } from "../../utils/validation.ts";
 import { AppError } from "../app_error.ts";
 
@@ -48,9 +49,7 @@ function normalizeParentId(parentId: string): string {
   return value;
 }
 
-export async function listChildProfiles(
-  parentId: string,
-): Promise<ChildProfileListItem[]> {
+export async function listChildProfiles(parentId: string): Promise<ChildProfileListItem[]> {
   const normalizedParentId = normalizeParentId(parentId);
 
   try {
@@ -74,35 +73,30 @@ export async function listChildProfiles(
 
     const children = await getChildrenByParentId(db, normalizedParentId);
 
-    return children.map((child) => ({
-      id: child.id,
-      parentId: child.parentId,
-      nickname: child.nickname,
-      avatarUrl: child.avatarUrl ?? null,
-      birthYear: child.birthYear,
-      totalStars: child.totalStars,
-      createdAt: child.createdAt,
-      updatedAt: child.updatedAt,
-      preferences: child.preferences
-        ? {
-            isHighContrast: child.preferences.isHighContrast,
-            preferencesData: child.preferences.preferencesData ?? null,
-          }
-        : null,
-    }));
+    return await Promise.all(
+      children.map(async (child) => ({
+        id: child.id,
+        parentId: child.parentId,
+        nickname: child.nickname,
+        avatarUrl: child.avatarUrl ? await getFileUrl(child.avatarUrl) : null,
+        birthYear: child.birthYear,
+        totalStars: child.totalStars,
+        createdAt: child.createdAt,
+        updatedAt: child.updatedAt,
+        preferences: child.preferences
+          ? {
+              isHighContrast: child.preferences.isHighContrast,
+              preferencesData: child.preferences.preferencesData ?? null,
+            }
+          : null,
+      })),
+    );
   } catch (error: unknown) {
     if (error instanceof AppError) {
       throw error;
     }
 
-    console.error(
-      "[ERROR] Unexpected error in use case: List child profiles",
-      error,
-    );
-    throw new AppError<ListChildProfilesErrorType>(
-      "INTERNAL_ERROR",
-      "Internal server error.",
-      500,
-    );
+    console.error("[ERROR] Unexpected error in use case: List child profiles", error);
+    throw new AppError<ListChildProfilesErrorType>("INTERNAL_ERROR", "Internal server error.", 500);
   }
 }

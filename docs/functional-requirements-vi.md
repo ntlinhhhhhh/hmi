@@ -175,7 +175,7 @@ Trường chính:
 
 - `parent_id`
 - `nickname`
-- `avatar_url`
+- `avatar_url` lưu S3 object key của avatar trẻ; API response trả presigned URL.
 - `birth_year`
 - `total_stars`
 
@@ -459,15 +459,17 @@ Các thực thể sau cần có để triển khai đầy đủ:
 - Actors: Phụ huynh.
 - Preconditions: Phụ huynh đã authenticated và active.
 - Main flow:
-  1. Phụ huynh gửi nickname, năm sinh và avatar tùy chọn.
+  1. Phụ huynh gửi nickname, năm sinh và file avatar tùy chọn.
   2. Backend validate input và quyền sở hữu.
   3. Backend suy ra difficulty mục tiêu từ tuổi.
-  4. Backend tạo `child_profiles`.
-  5. Backend tạo `preferences` mặc định.
-  6. Backend mở khóa lecture, quiz và game mặc định theo difficulty.
-  7. Backend trả hồ sơ trẻ.
+  4. Backend upload avatar lên S3 storage nếu có file.
+  5. Backend tạo `child_profiles`.
+  6. Backend tạo `preferences` mặc định.
+  7. Backend mở khóa lecture, quiz và game mặc định theo difficulty.
+  8. Backend trả hồ sơ trẻ kèm presigned avatar URL nếu có avatar.
 - Alternative/error flows:
   - Thiếu nickname hoặc năm sinh không hợp lệ trả `400`.
+  - Avatar không đúng định dạng trả `400`; avatar lớn hơn 5 MB trả `413`; upload S3 lỗi trả `502`.
   - Account không phải phụ huynh trả `404` hoặc `403`.
   - Không có default content: vẫn tạo trẻ và danh sách content rỗng.
 - Postconditions: Hồ sơ trẻ tồn tại và chọn được.
@@ -496,7 +498,7 @@ Các thực thể sau cần có để triển khai đầy đủ:
 - Actors: Phụ huynh.
 - Preconditions: Phụ huynh sở hữu hồ sơ trẻ.
 - Main flow:
-  1. Phụ huynh sửa nickname, avatar hoặc năm sinh.
+  1. Phụ huynh sửa nickname, file avatar hoặc năm sinh.
   2. Backend validate và cập nhật hồ sơ.
   3. Nếu xóa, backend yêu cầu xác nhận rõ ràng.
   4. Backend xóa hồ sơ trẻ và cascade dữ liệu phụ thuộc.
@@ -865,15 +867,15 @@ Error body chuẩn:
 
 ### Hồ sơ trẻ và Preferences
 
-| Method   | Path                             | Mục đích                                | Auth/Authz            | Request                                                                 | Response                                                       | Error responses                                                                                                             | Validation                                                                                                                                               | Use case liên quan    | Trạng thái    |
-| -------- | -------------------------------- | --------------------------------------- | --------------------- | ----------------------------------------------------------------------- | -------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- | ------------- |
-| `POST`   | `/children`                      | Tạo hồ sơ trẻ cho parent authenticated. | Parent authenticated. | Body: `nickname`, `birth_year`, optional `avatar_url`.                  | `201` với `message` và `child`.                                | `400` nickname/avatar/birth year không hợp lệ. `401` invalid session. `403` parent bị ban/inactive. `404` parent not found. | Nickname không rỗng <= 80 ký tự; avatar <= 2048 ký tự; birth year từ current year - 18 đến current year.                                                 | UC-CHILD-01           | Đã triển khai |
-| `GET`    | `/children`                      | Liệt kê child profile thuộc parent.     | Parent authenticated. | Không có.                                                               | `200` với `children[]`, gồm preference summary.                | `401` invalid session. `403` parent bị ban/inactive. `404` parent not found.                                                | Parent lấy từ session.                                                                                                                                   | UC-CHILD-02           | Đã triển khai |
-| `GET`    | `/children/:childId`             | Trả về một child profile.               | Parent sở hữu child.  | Path: `childId`.                                                        | `200` với `child`, preferences, star balance và summary links. | `400` UUID không hợp lệ. `401` invalid session. `403` không sở hữu child. `404` child not found.                            | UUID format và ownership.                                                                                                                                | UC-CHILD-02           | Thiếu         |
-| `PATCH`  | `/children/:childId`             | Cập nhật child profile.                 | Parent sở hữu child.  | Path: `childId`. Body: optional `nickname`, `birth_year`, `avatar_url`. | `200` với `child` đã cập nhật.                                 | `400` body/UUID không hợp lệ. `401` invalid session. `403` không sở hữu child. `404` child not found.                       | Giới hạn field như create; phải có ít nhất một field. Nếu birth year thay đổi, không tự gỡ content đã unlock.                                            | UC-CHILD-03           | Thiếu         |
-| `DELETE` | `/children/:childId`             | Xóa child profile và dữ liệu phụ thuộc. | Parent sở hữu child.  | Path: `childId`. Body: confirmation string hoặc password confirmation.  | `200` message.                                                 | `400` thiếu confirmation/UUID không hợp lệ. `401` invalid session. `403` không sở hữu child. `404` child not found.         | Bắt buộc xác nhận rõ. Cascade xóa logs, preferences, sessions, unlocks, pets.                                                                            | UC-CHILD-03           | Thiếu         |
-| `GET`    | `/children/:childId/preferences` | Đọc sensory preferences.                | Parent sở hữu child.  | Path: `childId`.                                                        | `200` với `preferences`.                                       | `400` UUID không hợp lệ. `401` invalid session. `403` không sở hữu child. `404` child/preference not found.                 | Bắt buộc ownership.                                                                                                                                      | UC-PREF-01, UC-REG-01 | Thiếu         |
-| `PATCH`  | `/children/:childId/preferences` | Cập nhật sensory preferences.           | Parent sở hữu child.  | Body: optional `is_high_contrast`, object `preferences` typed.          | `200` với `preferences` đã cập nhật.                           | `400` preference schema không hợp lệ. `401` invalid session. `403` không sở hữu child. `404` child not found.               | Validate key: theme, volume 0-100, brightness 0-100, timeout seconds dương, boolean cho reduced motion/voice prompts. Reject giá trị unsupported/unsafe. | UC-PREF-01, UC-REG-01 | Thiếu         |
+| Method   | Path                             | Mục đích                                | Auth/Authz            | Request                                                                               | Response                                                       | Error responses                                                                                                                                                        | Validation                                                                                                                                               | Use case liên quan    | Trạng thái    |
+| -------- | -------------------------------- | --------------------------------------- | --------------------- | ------------------------------------------------------------------------------------- | -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- | ------------- |
+| `POST`   | `/children`                      | Tạo hồ sơ trẻ cho parent authenticated. | Parent authenticated. | Multipart fields: `nickname`, `birth_year`, optional file `avatar`.                   | `201` với `message` và `child`; `avatar_url` là presigned URL. | `400` nickname/avatar/birth year không hợp lệ. `401` invalid session. `403` parent bị ban/inactive. `404` parent not found. `413` avatar quá lớn. `502` upload S3 lỗi. | Nickname không rỗng <= 80 ký tự; avatar phải là JPEG/PNG/WebP/GIF/AVIF <= 5 MB; birth year từ current year - 18 đến current year.                        | UC-CHILD-01           | Đã triển khai |
+| `GET`    | `/children`                      | Liệt kê child profile thuộc parent.     | Parent authenticated. | Không có.                                                                             | `200` với `children[]`, gồm preference summary.                | `401` invalid session. `403` parent bị ban/inactive. `404` parent not found.                                                                                           | Parent lấy từ session.                                                                                                                                   | UC-CHILD-02           | Đã triển khai |
+| `GET`    | `/children/:childId`             | Trả về một child profile.               | Parent sở hữu child.  | Path: `childId`.                                                                      | `200` với `child`, preferences, star balance và summary links. | `400` UUID không hợp lệ. `401` invalid session. `403` không sở hữu child. `404` child not found.                                                                       | UUID format và ownership.                                                                                                                                | UC-CHILD-02           | Thiếu         |
+| `PATCH`  | `/children/:childId`             | Cập nhật child profile.                 | Parent sở hữu child.  | Path: `childId`. Multipart body với optional `nickname`, `birth_year`, file `avatar`. | `200` với `child` đã cập nhật; `avatar_url` là presigned URL.  | `400` body/UUID/avatar không hợp lệ. `401` invalid session. `403` không sở hữu child. `404` child not found. `413` avatar quá lớn. `502` upload S3 lỗi.                | Giới hạn field như create; phải có ít nhất một field. Nếu birth year thay đổi, không tự gỡ content đã unlock.                                            | UC-CHILD-03           | Thiếu         |
+| `DELETE` | `/children/:childId`             | Xóa child profile và dữ liệu phụ thuộc. | Parent sở hữu child.  | Path: `childId`. Body: confirmation string hoặc password confirmation.                | `200` message.                                                 | `400` thiếu confirmation/UUID không hợp lệ. `401` invalid session. `403` không sở hữu child. `404` child not found.                                                    | Bắt buộc xác nhận rõ. Cascade xóa logs, preferences, sessions, unlocks, pets.                                                                            | UC-CHILD-03           | Thiếu         |
+| `GET`    | `/children/:childId/preferences` | Đọc sensory preferences.                | Parent sở hữu child.  | Path: `childId`.                                                                      | `200` với `preferences`.                                       | `400` UUID không hợp lệ. `401` invalid session. `403` không sở hữu child. `404` child/preference not found.                                                            | Bắt buộc ownership.                                                                                                                                      | UC-PREF-01, UC-REG-01 | Thiếu         |
+| `PATCH`  | `/children/:childId/preferences` | Cập nhật sensory preferences.           | Parent sở hữu child.  | Body: optional `is_high_contrast`, object `preferences` typed.                        | `200` với `preferences` đã cập nhật.                           | `400` preference schema không hợp lệ. `401` invalid session. `403` không sở hữu child. `404` child not found.                                                          | Validate key: theme, volume 0-100, brightness 0-100, timeout seconds dương, boolean cho reduced motion/voice prompts. Reject giá trị unsupported/unsafe. | UC-PREF-01, UC-REG-01 | Thiếu         |
 
 ### Nội dung học tập và Sessions
 

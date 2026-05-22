@@ -47,32 +47,17 @@ const VALID_EMOTIONS = new Set([
   "SURPRISED",
 ]);
 
-const VALID_TRIGGER_SOURCES = new Set([
-  "AAC_BOARD",
-  "GAME",
-  "QUIZ",
-  "LECTURE",
-  "WEBCAM",
-  "SYSTEM",
-]);
+const VALID_TRIGGER_SOURCES = new Set(["AAC_BOARD", "GAME", "QUIZ", "LECTURE", "WEBCAM", "SYSTEM"]);
 
 function normalizeParentId(parentId: string): string {
   const value = parentId.trim();
 
   if (!value) {
-    throw new AppError<LogEmotionErrorType>(
-      "MISSING_PARENT_ID",
-      "Parent ID is required.",
-      400,
-    );
+    throw new AppError<LogEmotionErrorType>("MISSING_PARENT_ID", "Parent ID is required.", 400);
   }
 
   if (!isValidUuid(value)) {
-    throw new AppError<LogEmotionErrorType>(
-      "INVALID_PARENT_ID",
-      "Invalid parent ID format.",
-      400,
-    );
+    throw new AppError<LogEmotionErrorType>("INVALID_PARENT_ID", "Invalid parent ID format.", 400);
   }
 
   return value;
@@ -82,19 +67,11 @@ function normalizeChildId(childId: string): string {
   const value = childId.trim();
 
   if (!value) {
-    throw new AppError<LogEmotionErrorType>(
-      "MISSING_CHILD_ID",
-      "Child ID is required.",
-      400,
-    );
+    throw new AppError<LogEmotionErrorType>("MISSING_CHILD_ID", "Child ID is required.", 400);
   }
 
   if (!isValidUuid(value)) {
-    throw new AppError<LogEmotionErrorType>(
-      "INVALID_CHILD_ID",
-      "Invalid child ID format.",
-      400,
-    );
+    throw new AppError<LogEmotionErrorType>("INVALID_CHILD_ID", "Invalid child ID format.", 400);
   }
 
   return value;
@@ -144,9 +121,7 @@ function normalizeTriggerSource(triggerSource: string): string {
   return value;
 }
 
-function normalizeDuration(
-  durationSeconds: number | undefined,
-): number | undefined {
+function normalizeDuration(durationSeconds: number | undefined): number | undefined {
   if (durationSeconds === undefined) return undefined;
 
   if (!Number.isInteger(durationSeconds) || durationSeconds <= 0) {
@@ -160,9 +135,7 @@ function normalizeDuration(
   return durationSeconds;
 }
 
-export async function recordEmotionLog(
-  input: LogEmotionInput,
-): Promise<LogEmotionResult> {
+export async function recordEmotionLog(input: LogEmotionInput): Promise<LogEmotionResult> {
   const parentId = normalizeParentId(input.parentId);
   const childId = normalizeChildId(input.childId);
   const emotionValue = normalizeEmotionValue(input.emotionValue);
@@ -173,11 +146,7 @@ export async function recordEmotionLog(
     const child = await getChildProfileById(db, childId);
 
     if (!child) {
-      throw new AppError<LogEmotionErrorType>(
-        "CHILD_NOT_FOUND",
-        "Child profile not found.",
-        404,
-      );
+      throw new AppError<LogEmotionErrorType>("CHILD_NOT_FOUND", "Child profile not found.", 404);
     }
 
     if (child.parentId !== parentId) {
@@ -209,11 +178,7 @@ export async function recordEmotionLog(
     }
 
     if (isPgErrorCode(error, PgErrorCode.FOREIGN_KEY_VIOLATION)) {
-      throw new AppError<LogEmotionErrorType>(
-        "CHILD_NOT_FOUND",
-        "Child profile not found.",
-        404,
-      );
+      throw new AppError<LogEmotionErrorType>("CHILD_NOT_FOUND", "Child profile not found.", 404);
     }
 
     if (isPgErrorCode(error, PgErrorCode.CHECK_VIOLATION)) {
@@ -225,10 +190,6 @@ export async function recordEmotionLog(
     }
 
     console.error("[ERROR] Unexpected error in use case: Log emotion", error);
-    throw new AppError<LogEmotionErrorType>(
-      "INTERNAL_ERROR",
-      "Internal server error.",
-      500,
-    );
+    throw new AppError<LogEmotionErrorType>("INTERNAL_ERROR", "Internal server error.", 500);
   }
 }

@@ -54,24 +54,15 @@ export const users = pgTable(
       .notNull(),
   },
   (table) => [
-    index("idx_users_email").using(
-      "btree",
-      table.email.asc().nullsLast().op("citext_ops"),
-    ),
+    index("idx_users_email").using("btree", table.email.asc().nullsLast().op("citext_ops")),
     index("idx_users_phone_number").using(
       "btree",
       table.phoneNumber.asc().nullsLast().op("citext_ops"),
     ),
     unique("users_email_key").on(table.email),
     unique("users_phone_number_key").on(table.phoneNumber),
-    check(
-      "users_role_check",
-      sql`role = ANY (ARRAY['PARENT'::text, 'ADMIN'::text])`,
-    ),
-    check(
-      "users_status_check",
-      sql`status = ANY (ARRAY['ACTIVE'::text, 'BANNED'::text])`,
-    ),
+    check("users_role_check", sql`role = ANY (ARRAY['PARENT'::text, 'ADMIN'::text])`),
+    check("users_status_check", sql`status = ANY (ARRAY['ACTIVE'::text, 'BANNED'::text])`),
   ],
 );
 
@@ -141,10 +132,7 @@ export const sessions = pgTable(
       "btree",
       table.expiresAt.asc().nullsLast().op("timestamptz_ops"),
     ),
-    index("idx_sessions_user_id").using(
-      "btree",
-      table.userId.asc().nullsLast().op("uuid_ops"),
-    ),
+    index("idx_sessions_user_id").using("btree", table.userId.asc().nullsLast().op("uuid_ops")),
     foreignKey({
       columns: [table.userId],
       foreignColumns: [users.id],
@@ -230,10 +218,7 @@ export const emotionLogs = pgTable(
       foreignColumns: [childProfiles.id],
       name: "emotion_logs_child_id_fkey",
     }).onDelete("cascade"),
-    check(
-      "emotion_logs_duration_check",
-      sql`duration_seconds > 0 OR duration_seconds IS NULL`,
-    ),
+    check("emotion_logs_duration_check", sql`duration_seconds > 0 OR duration_seconds IS NULL`),
   ],
 );
 
@@ -262,10 +247,7 @@ export const contents = pgTable(
       "contents_type_check",
       sql`type = ANY (ARRAY['LECTURE'::text, 'GAME'::text, 'QUIZ'::text])`,
     ),
-    check(
-      "contents_status_check",
-      sql`status = ANY (ARRAY['DRAFT'::text, 'PUBLISHED'::text])`,
-    ),
+    check("contents_status_check", sql`status = ANY (ARRAY['DRAFT'::text, 'PUBLISHED'::text])`),
   ],
 );
 
@@ -284,10 +266,7 @@ export const lectures = pgTable(
       foreignColumns: [contents.id],
       name: "lectures_id_contents_fkey",
     }).onDelete("cascade"),
-    check(
-      "lectures_difficulty_check",
-      sql`difficulty_level >= 1 AND difficulty_level <= 3`,
-    ),
+    check("lectures_difficulty_check", sql`difficulty_level >= 1 AND difficulty_level <= 3`),
   ],
 );
 
@@ -307,10 +286,7 @@ export const quizzes = pgTable(
       foreignColumns: [contents.id],
       name: "quizzes_id_contents_fkey",
     }).onDelete("cascade"),
-    check(
-      "quizzes_difficulty_check",
-      sql`difficulty_level >= 1 AND difficulty_level <= 3`,
-    ),
+    check("quizzes_difficulty_check", sql`difficulty_level >= 1 AND difficulty_level <= 3`),
   ],
 );
 
@@ -330,10 +306,7 @@ export const game = pgTable(
       foreignColumns: [contents.id],
       name: "game_id_contents_fkey",
     }).onDelete("cascade"),
-    check(
-      "game_difficulty_check",
-      sql`difficulty_level >= 1 AND difficulty_level <= 3`,
-    ),
+    check("game_difficulty_check", sql`difficulty_level >= 1 AND difficulty_level <= 3`),
     check("game_star_cost_check", sql`unlock_star_cost >= 0`),
     check("game_time_limit_check", sql`time_limit_seconds > 0`),
   ],
@@ -425,10 +398,7 @@ export const pets = pgTable(
       .notNull(),
   },
   (table) => [
-    check(
-      "pets_status_check",
-      sql`status = ANY (ARRAY['ACTIVE'::text, 'HIDDEN'::text])`,
-    ),
+    check("pets_status_check", sql`status = ANY (ARRAY['ACTIVE'::text, 'HIDDEN'::text])`),
     check("pets_star_cost_check", sql`unlock_star_cost >= 0`),
   ],
 );
@@ -445,10 +415,7 @@ export const childPets = pgTable(
       .notNull(),
   },
   (table) => [
-    index("idx_child_pets_child_id").using(
-      "btree",
-      table.childId.asc().nullsLast().op("uuid_ops"),
-    ),
+    index("idx_child_pets_child_id").using("btree", table.childId.asc().nullsLast().op("uuid_ops")),
     foreignKey({
       columns: [table.childId],
       foreignColumns: [childProfiles.id],

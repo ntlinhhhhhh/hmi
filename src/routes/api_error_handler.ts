@@ -14,10 +14,7 @@ function getValidationMessage(error: unknown): string {
   if (typeof error === "object" && error !== null) {
     const validationError = error as ValidationErrorShape;
 
-    if (
-      typeof validationError.summary === "string" &&
-      validationError.summary.trim()
-    ) {
+    if (typeof validationError.summary === "string" && validationError.summary.trim()) {
       return validationError.summary;
     }
 
@@ -37,10 +34,7 @@ function getValidationMessage(error: unknown): string {
   return "Invalid request input.";
 }
 
-export const withApiErrorHandler = (
-  app: Elysia,
-  options: ApiErrorHandlerOptions = {},
-) =>
+export const withApiErrorHandler = (app: Elysia, options: ApiErrorHandlerOptions = {}) =>
   app.error({ AppError }).onError(({ code, error, set }) => {
     const validationErrorType = options.validationErrorType ?? "INVALID_INPUT";
 

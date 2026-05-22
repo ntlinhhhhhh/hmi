@@ -1,15 +1,8 @@
 import { db, withTx } from "../../db/client.ts";
 import { createSession } from "../../db/queries/session_queries.ts";
-import {
-  findUserByIdentifier,
-  markUserLoggedIn,
-} from "../../db/queries/user_queries.ts";
+import { findUserByIdentifier, markUserLoggedIn } from "../../db/queries/user_queries.ts";
 import { AppError } from "../app_error.ts";
-import {
-  generateSessionToken,
-  hashSessionToken,
-  readSessionTtlMs,
-} from "./session_token.ts";
+import { generateSessionToken, hashSessionToken, readSessionTtlMs } from "./session_token.ts";
 
 export type SignInErrorType =
   | "MISSING_IDENTIFIER"
@@ -57,19 +50,13 @@ function normalizeIdentifier(identifier: string): string {
 
 function requirePassword(password: string): string {
   if (!password) {
-    throw new AppError<SignInErrorType>(
-      "MISSING_PASSWORD",
-      "Password is required.",
-      400,
-    );
+    throw new AppError<SignInErrorType>("MISSING_PASSWORD", "Password is required.", 400);
   }
 
   return password;
 }
 
-export async function signInParent(
-  input: SignInParentInput,
-): Promise<SignInParentResult> {
+export async function signInParent(input: SignInParentInput): Promise<SignInParentResult> {
   const identifier = normalizeIdentifier(input.identifier);
   const password = requirePassword(input.password);
 
@@ -85,11 +72,7 @@ export async function signInParent(
     }
 
     if (user.status === "BANNED") {
-      throw new AppError<SignInErrorType>(
-        "ACCOUNT_BANNED",
-        "Account is banned.",
-        403,
-      );
+      throw new AppError<SignInErrorType>("ACCOUNT_BANNED", "Account is banned.", 403);
     }
 
     if (user.authProvider !== "LOCAL") {
@@ -100,10 +83,7 @@ export async function signInParent(
       );
     }
 
-    const isValidPassword = await Bun.password.verify(
-      password,
-      user.passwordHash,
-    );
+    const isValidPassword = await Bun.password.verify(password, user.passwordHash);
 
     if (!isValidPassword) {
       throw new AppError<SignInErrorType>(
@@ -144,14 +124,7 @@ export async function signInParent(
       throw error;
     }
 
-    console.error(
-      "[ERROR] Unexpected error in use case: Sign in parent",
-      error,
-    );
-    throw new AppError<SignInErrorType>(
-      "INTERNAL_ERROR",
-      "Internal server error.",
-      500,
-    );
+    console.error("[ERROR] Unexpected error in use case: Sign in parent", error);
+    throw new AppError<SignInErrorType>("INTERNAL_ERROR", "Internal server error.", 500);
   }
 }

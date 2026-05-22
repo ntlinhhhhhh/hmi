@@ -1,8 +1,5 @@
 import { db } from "../../db/client.ts";
-import {
-  getActiveSessionByTokenHash,
-  touchSession,
-} from "../../db/queries/session_queries.ts";
+import { getActiveSessionByTokenHash, touchSession } from "../../db/queries/session_queries.ts";
 import { AppError } from "../app_error.ts";
 import { hashSessionToken, normalizeSessionToken } from "./session_token.ts";
 
@@ -27,9 +24,7 @@ export type CurrentSessionResult = {
   };
 };
 
-export async function getCurrentSession(
-  sessionToken: string,
-): Promise<CurrentSessionResult> {
+export async function getCurrentSession(sessionToken: string): Promise<CurrentSessionResult> {
   const normalizedSessionToken = normalizeSessionToken(sessionToken);
 
   if (!normalizedSessionToken) {
@@ -41,10 +36,7 @@ export async function getCurrentSession(
   }
 
   try {
-    const session = await getActiveSessionByTokenHash(
-      db,
-      hashSessionToken(normalizedSessionToken),
-    );
+    const session = await getActiveSessionByTokenHash(db, hashSessionToken(normalizedSessionToken));
 
     if (!session) {
       throw new AppError<CurrentSessionErrorType>(
@@ -55,11 +47,7 @@ export async function getCurrentSession(
     }
 
     if (session.user.status === "BANNED") {
-      throw new AppError<CurrentSessionErrorType>(
-        "ACCOUNT_BANNED",
-        "Account is banned.",
-        403,
-      );
+      throw new AppError<CurrentSessionErrorType>("ACCOUNT_BANNED", "Account is banned.", 403);
     }
 
     await touchSession(db, session.id);
@@ -83,14 +71,7 @@ export async function getCurrentSession(
       throw error;
     }
 
-    console.error(
-      "[ERROR] Unexpected error in use case: Get current session",
-      error,
-    );
-    throw new AppError<CurrentSessionErrorType>(
-      "INTERNAL_ERROR",
-      "Internal server error.",
-      500,
-    );
+    console.error("[ERROR] Unexpected error in use case: Get current session", error);
+    throw new AppError<CurrentSessionErrorType>("INTERNAL_ERROR", "Internal server error.", 500);
   }
 }

@@ -29,6 +29,8 @@
 - [403 Forbidden] - User doesn't satisfy conditions for operation
 - [404 Not Found] - Resource not found
 - [409 Conflict] - Data update conflicts with existing data
+- [413 Payload Too Large] - Uploaded file exceeds the endpoint limit
+- [502 Bad Gateway] - Upstream storage operation failed
 - [500 Internal Server Error] - Unexpected server error occurred
 
 # Authentication:
@@ -40,6 +42,10 @@ Authorization: Bearer <session_token>
 ```
 
 The backend resolves the authenticated parent from the session token. Clients must not send parent IDs in protected endpoint paths.
+
+# File storage:
+
+Uploaded files are stored in S3-compatible object storage. In local development, Docker Compose runs MinIO. Avatar URLs returned by the API are short-lived presigned download URLs.
 
 # Health Endpoints:
 
@@ -261,19 +267,17 @@ POST /children
 - Description: Creates a child profile for the authenticated parent.
 - Auth required: Yes
 
-### Request body (application/json):
+### Request body (multipart/form-data):
 
 - nickname (string, Required): Child display nickname. Must be 80 characters or fewer.
 - birth_year (number, Required): Child birth year. Must be an integer from current year minus 18 through current year.
-- avatar_url (string, Optional): Child avatar URL. Must be 2048 characters or fewer.
+- avatar (file, Optional): Child avatar image. Supported types: JPEG, PNG, WebP, GIF, AVIF. Maximum size: 5 MB.
 - Example:
 
-```json
-{
-  "nickname": "Mina",
-  "birth_year": 2018,
-  "avatar_url": "https://cdn.example.com/children/mina.png"
-}
+```text
+nickname=Mina
+birth_year=2018
+avatar=@mina.png;type=image/png
 ```
 
 ### Responses:
@@ -287,7 +291,7 @@ POST /children
     "id": "323e4567-e89b-12d3-a456-426614174000",
     "parent_id": "123e4567-e89b-12d3-a456-426614174000",
     "nickname": "Mina",
-    "avatar_url": "https://cdn.example.com/children/mina.png",
+    "avatar_url": "http://127.0.0.1:9000/hmi-media/child-avatars/123e4567-e89b-12d3-a456-426614174000/323e4567-e89b-12d3-a456-426614174000.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&...",
     "birth_year": 2018,
     "total_stars": 0,
     "created_at": "2026-05-21T07:14:22.170Z",
@@ -296,10 +300,12 @@ POST /children
 }
 ```
 
-- [400 Bad Request] - Possible `type` values: INVALID_JSON, MISSING_NICKNAME, INVALID_NICKNAME, INVALID_AVATAR_URL, INVALID_BIRTH_YEAR.
+- [400 Bad Request] - Possible `type` values: INVALID_FORM_DATA, MISSING_NICKNAME, INVALID_NICKNAME, INVALID_AVATAR_FILE, INVALID_BIRTH_YEAR.
 - [401 Unauthorized] - Possible `type` values: MISSING_SESSION_TOKEN, INVALID_SESSION.
 - [403 Forbidden] - Possible `type` values: ACCOUNT_BANNED, PARENT_NOT_ACTIVE.
 - [404 Not Found] - Possible `type` values: PARENT_NOT_FOUND.
+- [413 Payload Too Large] - Possible `type` values: AVATAR_TOO_LARGE.
+- [502 Bad Gateway] - Possible `type` values: STORAGE_ERROR.
 
 ## List child profiles
 
@@ -327,7 +333,7 @@ GET /children
       "id": "323e4567-e89b-12d3-a456-426614174000",
       "parent_id": "123e4567-e89b-12d3-a456-426614174000",
       "nickname": "Mina",
-      "avatar_url": "https://cdn.example.com/children/mina.png",
+      "avatar_url": "http://127.0.0.1:9000/hmi-media/child-avatars/123e4567-e89b-12d3-a456-426614174000/323e4567-e89b-12d3-a456-426614174000.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&...",
       "birth_year": 2018,
       "total_stars": 12,
       "created_at": "2026-05-21T07:14:22.170Z",

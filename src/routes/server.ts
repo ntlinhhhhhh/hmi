@@ -28,10 +28,6 @@ const healthRouter = new Elysia().get("/health", async ({ set }) => {
   return health;
 });
 
-const app = new Elysia()
-  .use(healthRouter)
-  .use(authRouter)
-  .use(childrenRouter)
-  .use(trackingRouter);
+const app = new Elysia().use(healthRouter).use(authRouter).use(childrenRouter).use(trackingRouter);
 
 export default app;

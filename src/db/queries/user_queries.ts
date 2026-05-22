@@ -15,10 +15,7 @@ export async function getUserById(db: DbExecutor, userId: string) {
   });
 }
 
-export async function createUser(
-  db: DbExecutor,
-  data: Omit<typeof users.$inferInsert, "id">,
-) {
+export async function createUser(db: DbExecutor, data: Omit<typeof users.$inferInsert, "id">) {
   const [newUser] = await db
     .insert(users)
     .values({
@@ -27,8 +24,7 @@ export async function createUser(
     })
     .returning();
 
-  if (!newUser)
-    throw new Error("[ERROR] Database returned no data after insert.");
+  if (!newUser) throw new Error("[ERROR] Database returned no data after insert.");
   return newUser;
 }
 

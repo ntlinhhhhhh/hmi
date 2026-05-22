@@ -69,10 +69,7 @@ async function closeQueryClient(queryClient: QueryClient): Promise<void> {
   try {
     await queryClient.end({ timeout: 5 });
   } catch (error) {
-    console.error(
-      "[WARN] Failed to close unsuccessful PostgreSQL client:",
-      error,
-    );
+    console.error("[WARN] Failed to close unsuccessful PostgreSQL client:", error);
   }
 }
 
@@ -81,9 +78,7 @@ async function connect(databaseUrl: string): Promise<QueryClient> {
 
   try {
     await queryClient`SELECT 1`;
-    console.log(
-      `[INFO] PostgreSQL connection established: ${describeDatabaseTarget(databaseUrl)}`,
-    );
+    console.log(`[INFO] PostgreSQL connection established: ${describeDatabaseTarget(databaseUrl)}`);
     return queryClient;
   } catch (error) {
     await closeQueryClient(queryClient);
@@ -121,9 +116,7 @@ function exitOnConnectionError(error: unknown): never {
   process.exit(1);
 }
 
-const connection = await createDatabaseConnection().catch(
-  exitOnConnectionError,
-);
+const connection = await createDatabaseConnection().catch(exitOnConnectionError);
 
 export const DATABASE_URL = connection.databaseUrl;
 export const queryClient = connection.queryClient;
@@ -133,9 +126,7 @@ export const db = drizzle(queryClient, { schema: { ...schema, ...relations } });
 export type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 export type DbExecutor = typeof db | DbTransaction;
 
-export async function withTx<T>(
-  fn: (tx: DbTransaction) => Promise<T>,
-): Promise<T> {
+export async function withTx<T>(fn: (tx: DbTransaction) => Promise<T>): Promise<T> {
   return await db.transaction(async (tx) => {
     return await fn(tx);
   });

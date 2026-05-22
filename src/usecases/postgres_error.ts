@@ -16,11 +16,7 @@ type PgLikeError = Error & {
 };
 
 function unwrapDbError(error: unknown): PgLikeError | null {
-  if (
-    error instanceof DrizzleQueryError &&
-    error.cause &&
-    typeof error.cause === "object"
-  ) {
+  if (error instanceof DrizzleQueryError && error.cause && typeof error.cause === "object") {
     return error.cause as PgLikeError;
   }
 

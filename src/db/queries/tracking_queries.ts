@@ -4,26 +4,29 @@ import { emotionLogs } from "../schema";
 import { randomUUID } from "crypto";
 
 export async function logEmotionEvent(
-  db: DbExecutor, 
-  data: Omit<typeof emotionLogs.$inferInsert, "id">
+  db: DbExecutor,
+  data: Omit<typeof emotionLogs.$inferInsert, "id">,
 ) {
-    const [log] = await db.insert(emotionLogs).values({
+  const [log] = await db
+    .insert(emotionLogs)
+    .values({
       ...data,
       id: randomUUID(),
-    }).returning();
+    })
+    .returning();
 
-    if (!log) {
-      throw new Error("[ERROR] Failed to insert emotion log. Database returned no data.");
-    }
+  if (!log) {
+    throw new Error("[ERROR] Failed to insert emotion log. Database returned no data.");
+  }
 
-    return log;
+  return log;
 }
 
 export async function getRecentEmotionLogs(db: DbExecutor, childId: string, limit: number = 100) {
   return await db.query.emotionLogs.findMany({
     where: eq(emotionLogs.childId, childId),
     orderBy: [desc(emotionLogs.createdAt)],
-    limit: limit
+    limit: limit,
   });
 }
 
@@ -37,8 +40,8 @@ export async function getEmotionStats(db: DbExecutor, childId: string, days: num
     .where(
       and(
         eq(emotionLogs.childId, childId),
-        gte(emotionLogs.createdAt, sql`NOW() - interval '${sql.raw(days.toString())} days'`)
-      )
+        gte(emotionLogs.createdAt, sql`NOW() - interval '${sql.raw(days.toString())} days'`),
+      ),
     )
     .groupBy(emotionLogs.emotionValue);
 }
@@ -52,8 +55,8 @@ export async function getMeltdownAlerts(db: DbExecutor, childId: string, days: n
         eq(emotionLogs.childId, childId),
         sql`emotion_value = ANY(ARRAY['SAD', 'ANGRY', 'STRESSED'])`,
         sql`duration_seconds > 60`,
-        gte(emotionLogs.createdAt, sql`NOW() - interval '${sql.raw(days.toString())} days'`)
-      )
+        gte(emotionLogs.createdAt, sql`NOW() - interval '${sql.raw(days.toString())} days'`),
+      ),
     )
     .orderBy(desc(emotionLogs.createdAt));
 }

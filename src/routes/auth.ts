@@ -7,28 +7,25 @@ import { requireAuth } from "./middleware/require_auth.ts";
 
 const protectedAuthRouter = new Elysia()
   .use(requireAuth)
-  .get(
-    "/me",
-    async ({ authSessionId, authSessionExpiresAt, authUser, set }) => {
-      set.status = 200;
-      return {
-        session: {
-          id: authSessionId,
-          expires_at: authSessionExpiresAt,
-        },
-        user: {
-          id: authUser.id,
-          email: authUser.email,
-          phone_number: authUser.phoneNumber,
-          full_name: authUser.fullName,
-          role: authUser.role,
-          status: authUser.status,
-          last_login_at: authUser.lastLoginAt,
-          created_at: authUser.createdAt,
-        },
-      };
-    },
-  )
+  .get("/me", async ({ authSessionId, authSessionExpiresAt, authUser, set }) => {
+    set.status = 200;
+    return {
+      session: {
+        id: authSessionId,
+        expires_at: authSessionExpiresAt,
+      },
+      user: {
+        id: authUser.id,
+        email: authUser.email,
+        phone_number: authUser.phoneNumber,
+        full_name: authUser.fullName,
+        role: authUser.role,
+        status: authUser.status,
+        last_login_at: authUser.lastLoginAt,
+        created_at: authUser.createdAt,
+      },
+    };
+  })
   .delete("/auth/session", async ({ authSessionToken, set }) => {
     await signOut(authSessionToken);
 

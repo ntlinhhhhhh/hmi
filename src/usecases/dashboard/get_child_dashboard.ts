@@ -1,9 +1,6 @@
 import { db } from "../../db/client.ts";
 import { getChildProfileById } from "../../db/queries/child_profile_queries.ts";
-import {
-  getEmotionStats,
-  getMeltdownAlerts,
-} from "../../db/queries/tracking_queries.ts";
+import { getEmotionStats, getMeltdownAlerts } from "../../db/queries/tracking_queries.ts";
 import { getLearningSummary } from "../../db/queries/learning_queries.ts";
 import { getUserById } from "../../db/queries/user_queries.ts";
 import { isValidUuid } from "../../utils/validation.ts";
@@ -63,11 +60,7 @@ function normalizeUuid(
   const normalizedValue = value.trim();
 
   if (!normalizedValue) {
-    throw new AppError<GetChildDashboardErrorType>(
-      missingType,
-      `${label} is required.`,
-      400,
-    );
+    throw new AppError<GetChildDashboardErrorType>(missingType, `${label} is required.`, 400);
   }
 
   if (!isValidUuid(normalizedValue)) {
@@ -104,12 +97,7 @@ export async function getChildDashboard(
     "INVALID_PARENT_ID",
     "Parent ID",
   );
-  const childId = normalizeUuid(
-    input.childId,
-    "MISSING_CHILD_ID",
-    "INVALID_CHILD_ID",
-    "Child ID",
-  );
+  const childId = normalizeUuid(input.childId, "MISSING_CHILD_ID", "INVALID_CHILD_ID", "Child ID");
   const days = normalizeDays(input.days);
 
   try {
@@ -180,14 +168,7 @@ export async function getChildDashboard(
       throw error;
     }
 
-    console.error(
-      "[ERROR] Unexpected error in use case: Get child dashboard",
-      error,
-    );
-    throw new AppError<GetChildDashboardErrorType>(
-      "INTERNAL_ERROR",
-      "Internal server error.",
-      500,
-    );
+    console.error("[ERROR] Unexpected error in use case: Get child dashboard", error);
+    throw new AppError<GetChildDashboardErrorType>("INTERNAL_ERROR", "Internal server error.", 500);
   }
 }
