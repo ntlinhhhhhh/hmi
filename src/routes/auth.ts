@@ -1,7 +1,9 @@
 import { Elysia, t } from "elysia";
+import { changePassword } from "../usecases/auth/change_password.ts";
 import { signInParent } from "../usecases/auth/sign_in.ts";
 import { signOut } from "../usecases/auth/sign_out.ts";
 import { signUpParent } from "../usecases/auth/sign_up.ts";
+import { updateCurrentUser } from "../usecases/auth/update_current_user.ts";
 import { withApiErrorHandler } from "./api_error_handler.ts";
 import { requireAuth } from "./middleware/require_auth.ts";
 
@@ -26,6 +28,61 @@ const protectedAuthRouter = new Elysia()
       },
     };
   })
+  .patch(
+    "/me",
+    async ({ authUserId, body, set }) => {
+      const user = await updateCurrentUser({
+        userId: authUserId,
+        email: body.email,
+        phoneNumber: body.phone_number,
+        fullName: body.full_name,
+      });
+
+      set.status = 200;
+      return {
+        message: "Account profile updated successfully.",
+        user: {
+          id: user.id,
+          email: user.email,
+          phone_number: user.phoneNumber,
+          full_name: user.fullName,
+          role: user.role,
+          status: user.status,
+          last_login_at: user.lastLoginAt,
+          created_at: user.createdAt,
+          updated_at: user.updatedAt,
+        },
+      };
+    },
+    {
+      body: t.Object({
+        email: t.Optional(t.String()),
+        phone_number: t.Optional(t.Union([t.String(), t.Null()])),
+        full_name: t.Optional(t.Union([t.String(), t.Null()])),
+      }),
+    },
+  )
+  .patch(
+    "/me/password",
+    async ({ authUserId, body, set }) => {
+      await changePassword({
+        userId: authUserId,
+        currentPassword: body.current_password,
+        newPassword: body.new_password,
+      });
+
+      set.status = 200;
+      return {
+        message: "Password changed successfully.",
+      };
+    },
+    {
+      body: t.Object({
+        current_password: t.String(),
+        new_password: t.String(),
+      }),
+    },
+  )
   .delete("/auth/session", async ({ authSessionToken, set }) => {
     await signOut(authSessionToken);
 
