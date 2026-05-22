@@ -1,4 +1,3 @@
-// File: src/db/relations.ts
 import { relations } from "drizzle-orm/relations";
 import {
   users,

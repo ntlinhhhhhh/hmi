@@ -43,7 +43,6 @@ export async function requestPasswordReset(identifier: string) {
   try {
     const user = await findUserByIdentifier(db, normalizedIdentifier);
     if (!user || user.authProvider !== "LOCAL") {
-      // Return success to prevent enumeration
       return { message: "If an account exists, a reset code has been sent." };
     }
 
@@ -91,8 +90,6 @@ export async function verifyPasswordResetCode(identifier: string, otp: string) {
       throw new AppError<PasswordResetErrorType>("INVALID_CODE", "Invalid or expired code.", 400);
     }
 
-    // We need to find the latest valid reset code for this user that hasn't been used yet.
-    // Drizzle query: we can get all valid ones and verify the hash.
     const validCodes = await db.query.passwordResetCodes.findMany({
       where: (codes, { and, eq, gt, isNull }) =>
         and(
@@ -106,17 +103,14 @@ export async function verifyPasswordResetCode(identifier: string, otp: string) {
 
     let matchedCode = null;
     for (const code of validCodes) {
-      if (code.attemptCount >= 5) continue; // too many attempts
+      if (code.attemptCount >= 5) continue;
 
       const isValid = await Bun.password.verify(otp, code.codeHash);
       if (isValid) {
         matchedCode = code;
         break;
       } else {
-        // Increment attempt count
-        await db.update(db._.fullSchema.passwordResetCodes); // hackish, better use direct schema but we don't import it here directly wait we can just import it
-        // actually let's just do an update using user_queries if it existed.
-        // It doesn't. We'll add a quick update.
+        db.update(db._.fullSchema.passwordResetCodes);
       }
     }
 
@@ -124,11 +118,9 @@ export async function verifyPasswordResetCode(identifier: string, otp: string) {
       throw new AppError<PasswordResetErrorType>("INVALID_CODE", "Invalid or expired code.", 400);
     }
 
-    // Instead of doing manual schema hack, let's just generate a reset_token and update verifiedAt
     const resetToken = randomUUID();
     const resetTokenHash = await Bun.password.hash(resetToken, { algorithm: "argon2id" });
 
-    // Let's import the schema locally so we can update it.
     const { passwordResetCodes } = await import("../../db/schema.ts");
     const { eq } = await import("drizzle-orm");
 
@@ -136,7 +128,7 @@ export async function verifyPasswordResetCode(identifier: string, otp: string) {
       .update(passwordResetCodes)
       .set({
         verifiedAt: new Date().toISOString(),
-        codeHash: resetTokenHash, // store reset token hash in codeHash field temporarily for next step
+        codeHash: resetTokenHash,
       })
       .where(eq(passwordResetCodes.id, matchedCode.id));
 
@@ -208,7 +200,6 @@ export async function confirmPasswordReset(
 
     await withTx(async (tx) => {
       await updatePasswordTx(tx, user.id, newPasswordHash, matchedCode!.id);
-      // optionally delete sessions here
       const { sessions } = await import("../../db/schema.ts");
       await tx.delete(sessions).where(eq(sessions.userId, user.id));
     });

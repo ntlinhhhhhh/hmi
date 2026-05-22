@@ -10,7 +10,6 @@ export type PasswordResetPhoneErrorType =
   | "USER_NOT_FOUND"
   | "INTERNAL_ERROR";
 
-// Initialize Firebase Admin lazily to avoid startup crash if file missing
 let firebaseApp: admin.app.App | null = null;
 function getFirebaseApp() {
   if (!firebaseApp) {
