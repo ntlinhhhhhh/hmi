@@ -23,6 +23,7 @@
     "@aws-sdk/s3-request-presigner": "^3.1052.0",
     "drizzle-orm": "^0.45.2",
     "elysia": "^1.4.28",
+    "firebase-admin": "^13.10.0",
     "google-auth-library": "^10.6.2",
     "jsonwebtoken": "^9.0.3",
     "nodemailer": "^8.0.7",
