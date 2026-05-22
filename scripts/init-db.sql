@@ -155,12 +155,31 @@ CREATE TABLE IF NOT EXISTS "quizzes" (
   "description" text,
   "difficulty_level" integer DEFAULT 1 NOT NULL,
   "is_default" boolean DEFAULT false NOT NULL,
+  "answer_emotions" jsonb DEFAULT '[]'::jsonb NOT NULL,
   "correct_emotion" text NOT NULL,
   CONSTRAINT "quizzes_id_contents_fkey"
     FOREIGN KEY ("id") REFERENCES "contents" ("id") ON DELETE cascade,
   CONSTRAINT "quizzes_difficulty_check"
-    CHECK ("difficulty_level" >= 1 AND "difficulty_level" <= 3)
+    CHECK ("difficulty_level" >= 1 AND "difficulty_level" <= 3),
+  CONSTRAINT "quizzes_answer_emotions_array_check"
+    CHECK (jsonb_typeof("answer_emotions") = 'array')
 );
+
+ALTER TABLE "quizzes"
+  ADD COLUMN IF NOT EXISTS "answer_emotions" jsonb DEFAULT '[]'::jsonb NOT NULL;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'quizzes_answer_emotions_array_check'
+  ) THEN
+    ALTER TABLE "quizzes"
+      ADD CONSTRAINT "quizzes_answer_emotions_array_check"
+      CHECK (jsonb_typeof("answer_emotions") = 'array');
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS "game" (
   "id" uuid PRIMARY KEY NOT NULL,

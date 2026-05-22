@@ -285,6 +285,10 @@ export const quizzes = pgTable(
     description: text("description"),
     difficultyLevel: integer("difficulty_level").default(1).notNull(),
     isDefault: boolean("is_default").default(false).notNull(),
+    answerEmotions: jsonb("answer_emotions")
+      .$type<string[]>()
+      .default(sql`'[]'::jsonb`)
+      .notNull(),
     correctEmotion: text("correct_emotion").notNull(),
   },
   (table) => [
@@ -294,6 +298,7 @@ export const quizzes = pgTable(
       name: "quizzes_id_contents_fkey",
     }).onDelete("cascade"),
     check("quizzes_difficulty_check", sql`difficulty_level >= 1 AND difficulty_level <= 3`),
+    check("quizzes_answer_emotions_array_check", sql`jsonb_typeof(answer_emotions) = 'array'`),
   ],
 );
 

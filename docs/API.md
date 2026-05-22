@@ -47,6 +47,8 @@ The backend resolves the authenticated parent from the session token. Clients mu
 
 Uploaded files are stored in S3-compatible object storage. In local development, Docker Compose runs MinIO. Avatar URLs returned by the API are short-lived presigned download URLs.
 
+Raw webcam frames are forbidden. Current backend endpoints store only derived emotion/game outcomes and must not accept raw webcam frame uploads.
+
 # Health Endpoints:
 
 ## Health check

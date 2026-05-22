@@ -2,6 +2,7 @@ import { eq, and, desc, exists, gt, isNull, sql } from "drizzle-orm";
 import type { DbExecutor } from "../client";
 import { contents, contentSessions, childProfiles, unlockContent } from "../schema";
 import { randomUUID } from "crypto";
+import { MAX_CONTENT_COMPLETION_REWARD_STARS } from "../../domain/reward_policy.ts";
 
 export async function getUnlockedContentsByChildId(db: DbExecutor, childId: string) {
   return await db.query.unlockContent.findMany({
@@ -57,8 +58,14 @@ export async function finishContentSessionTx(
   sessionData: Omit<typeof contentSessions.$inferInsert, "id">,
   earnedStars: number,
 ) {
-  if (!Number.isInteger(earnedStars) || earnedStars < 0) {
-    throw new Error("[ERROR] earnedStars must be a non-negative integer.");
+  if (
+    !Number.isInteger(earnedStars) ||
+    earnedStars < 0 ||
+    earnedStars > MAX_CONTENT_COMPLETION_REWARD_STARS
+  ) {
+    throw new Error(
+      `[ERROR] earnedStars must be an integer from 0 to ${MAX_CONTENT_COMPLETION_REWARD_STARS}.`,
+    );
   }
 
   const sessionStatus = sessionData.status ?? "COMPLETED";
