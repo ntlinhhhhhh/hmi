@@ -5,6 +5,7 @@ import {
   findValidResetCode,
   updatePasswordTx,
 } from "../../db/queries/user_queries.ts";
+import { sendSms, SmsSendError } from "../../notifications/sms.ts";
 import { AppError } from "../app_error.ts";
 import * as nodemailer from "nodemailer";
 import { randomInt, randomUUID } from "crypto";
@@ -15,7 +16,16 @@ export type PasswordResetErrorType =
   | "EXPIRED_CODE"
   | "MISSING_PASSWORD"
   | "WEAK_PASSWORD"
+  | "DELIVERY_FAILED"
   | "INTERNAL_ERROR";
+
+const PASSWORD_RESET_OTP_TTL_MINUTES = 15;
+
+function normalizeIdentifier(identifier: string): string {
+  const value = identifier.trim();
+  if (value.includes("@")) return value.toLowerCase();
+  return value.replace(/[\s().-]/g, "");
+}
 
 function getTransporter() {
   return nodemailer.createTransport({
@@ -38,7 +48,7 @@ export async function requestPasswordReset(identifier: string) {
     );
   }
 
-  const normalizedIdentifier = identifier.trim().toLowerCase();
+  const normalizedIdentifier = normalizeIdentifier(identifier);
 
   try {
     const user = await findUserByIdentifier(db, normalizedIdentifier);
@@ -48,7 +58,9 @@ export async function requestPasswordReset(identifier: string) {
 
     const otp = randomInt(100000, 999999).toString();
     const codeHash = await Bun.password.hash(otp, { algorithm: "argon2id" });
-    const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString(); // 15 mins
+    const expiresAt = new Date(
+      Date.now() + PASSWORD_RESET_OTP_TTL_MINUTES * 60 * 1000,
+    ).toISOString();
 
     await createPasswordResetCode(db, {
       userId: user.id,
@@ -62,12 +74,31 @@ export async function requestPasswordReset(identifier: string) {
         from: process.env.SMTP_FROM || '"HMI App" <noreply@hmi.app>',
         to: user.email,
         subject: "Your Password Reset Code",
-        text: `Your password reset code is: ${otp}. It expires in 15 minutes.`,
+        text: `Your password reset code is: ${otp}. It expires in ${PASSWORD_RESET_OTP_TTL_MINUTES} minutes.`,
+      });
+    } else if (user.phoneNumber) {
+      await sendSms({
+        to: user.phoneNumber,
+        body: `Your HMI password reset code is ${otp}. It expires in ${PASSWORD_RESET_OTP_TTL_MINUTES} minutes.`,
       });
     }
 
     return { message: "If an account exists, a reset code has been sent." };
   } catch (error) {
+    if (error instanceof SmsSendError) {
+      console.error("[ERROR] password reset SMS delivery failed:", {
+        type: error.type,
+        providerStatus: error.providerStatus,
+        providerCode: error.providerCode,
+        cause: error.cause,
+      });
+      throw new AppError<PasswordResetErrorType>(
+        "DELIVERY_FAILED",
+        "Unable to deliver password reset code.",
+        error.type === "SMS_CONFIGURATION_ERROR" ? 500 : 502,
+      );
+    }
+
     console.error("[ERROR] requestPasswordReset:", error);
     throw new AppError<PasswordResetErrorType>("INTERNAL_ERROR", "Internal server error.", 500);
   }

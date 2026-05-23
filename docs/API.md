@@ -172,7 +172,7 @@ POST /auth/google
 POST /auth/password-reset/request
 ```
 
-- Description: Requests a password reset code (OTP) sent via email.
+- Description: Requests a password reset code (OTP) sent via email for email identifiers or SMS for phone identifiers.
 - Auth required: No
 
 ### Request body (application/json):
@@ -182,6 +182,8 @@ POST /auth/password-reset/request
 ### Responses:
 
 - [200 OK] - Returns success message (to prevent user enumeration).
+- [500 Internal Server Error] - DELIVERY_FAILED when SMS delivery is not configured.
+- [502 Bad Gateway] - DELIVERY_FAILED when the SMS provider rejects or fails the delivery request.
 
 ## Password Reset Verify
 
@@ -191,7 +193,7 @@ POST /auth/password-reset/request
 POST /auth/password-reset/verify
 ```
 
-- Description: Verifies the OTP sent via email and returns a reset token.
+- Description: Verifies the OTP sent via email or SMS and returns a reset token.
 - Auth required: No
 
 ### Request body (application/json):

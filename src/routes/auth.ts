@@ -225,7 +225,10 @@ const authRouter = withApiErrorHandler(new Elysia(), {
     async ({ body, set }) => {
       const result = await verifyPasswordResetCode(body.identifier, body.otp);
       set.status = 200;
-      return result;
+      return {
+        message: result.message,
+        reset_token: result.resetToken,
+      };
     },
     {
       body: t.Object({
