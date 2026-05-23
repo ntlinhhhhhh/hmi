@@ -17,6 +17,20 @@ docker compose up --build
 API chạy tại `http://127.0.0.1:5050`. MinIO API chạy tại `http://127.0.0.1:9000`, console tại
 `http://127.0.0.1:9001`.
 
+## SMS reset mật khẩu
+
+Reset mật khẩu bằng số điện thoại dùng TextBee để gửi OTP qua Android phone/SIM của bạn. Cấu hình
+trong `.env`:
+
+```bash
+TEXTBEE_API_KEY=
+TEXTBEE_DEVICE_ID=
+TEXTBEE_SIM_SUBSCRIPTION_ID=
+```
+
+`TEXTBEE_SIM_SUBSCRIPTION_ID` chỉ cần khi thiết bị Android có nhiều SIM. Giữ app TextBee online và
+đảm bảo SIM có thể gửi SMS tới số nhận.
+
 Kiểm tra nhanh:
 
 ```bash

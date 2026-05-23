@@ -182,8 +182,12 @@ POST /auth/password-reset/request
 ### Responses:
 
 - [200 OK] - Returns success message (to prevent user enumeration).
-- [500 Internal Server Error] - DELIVERY_FAILED when SMS delivery is not configured.
-- [502 Bad Gateway] - DELIVERY_FAILED when the SMS provider rejects or fails the delivery request.
+- [500 Internal Server Error] - DELIVERY_FAILED when TextBee SMS delivery is not configured.
+- [502 Bad Gateway] - DELIVERY_FAILED when TextBee rejects or fails the delivery request.
+
+### SMS delivery configuration:
+
+Phone reset OTP delivery uses TextBee. Configure `TEXTBEE_API_KEY` and `TEXTBEE_DEVICE_ID`, keep the TextBee Android app online, and ensure the sender SIM can send SMS to the recipient.
 
 ## Password Reset Verify
 

@@ -1,17 +1,15 @@
-import { Buffer } from "node:buffer";
-
 export type SendSmsInput = {
   to: string;
   body: string;
 };
 
 export type SendSmsResult = {
-  provider: "twilio";
+  provider: "textbee";
   messageId: string;
   status: string | null;
 };
 
-type SmsSendErrorType = "SMS_CONFIGURATION_ERROR" | "SMS_PROVIDER_ERROR";
+type SmsSendErrorType = "SMS_CONFIGURATION_ERROR" | "SMS_DELIVERY_ERROR";
 
 export class SmsSendError extends Error {
   readonly type: SmsSendErrorType;
@@ -39,11 +37,10 @@ export class SmsSendError extends Error {
   }
 }
 
-type TwilioConfig = {
-  accountSid: string;
-  authToken: string;
-  messagingServiceSid: string | null;
-  fromPhoneNumber: string | null;
+type TextBeeConfig = {
+  apiKey: string;
+  deviceId: string;
+  simSubscriptionId: number | null;
   apiBaseUrl: string;
 };
 
@@ -64,30 +61,27 @@ function readRequiredEnv(name: string): string {
   return value;
 }
 
-function readTwilioConfig(): TwilioConfig {
-  const provider = readOptionalEnv("SMS_PROVIDER") ?? "twilio";
-  if (provider.toLowerCase() !== "twilio") {
+function readOptionalIntegerEnv(name: string): number | null {
+  const value = readOptionalEnv(name);
+  if (!value) return null;
+
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) {
     throw new SmsSendError(
       "SMS_CONFIGURATION_ERROR",
-      `Unsupported SMS_PROVIDER '${provider}'. Supported provider: twilio.`,
+      `${name} must be a non-negative integer when configured.`,
     );
   }
 
-  const messagingServiceSid = readOptionalEnv("TWILIO_MESSAGING_SERVICE_SID");
-  const fromPhoneNumber = readOptionalEnv("TWILIO_FROM_PHONE_NUMBER");
-  if (!messagingServiceSid && !fromPhoneNumber) {
-    throw new SmsSendError(
-      "SMS_CONFIGURATION_ERROR",
-      "Either TWILIO_MESSAGING_SERVICE_SID or TWILIO_FROM_PHONE_NUMBER is required.",
-    );
-  }
+  return parsed;
+}
 
+function readTextBeeConfig(): TextBeeConfig {
   return {
-    accountSid: readRequiredEnv("TWILIO_ACCOUNT_SID"),
-    authToken: readRequiredEnv("TWILIO_AUTH_TOKEN"),
-    messagingServiceSid,
-    fromPhoneNumber,
-    apiBaseUrl: readOptionalEnv("TWILIO_API_BASE_URL") ?? "https://api.twilio.com/2010-04-01",
+    apiKey: readRequiredEnv("TEXTBEE_API_KEY"),
+    deviceId: readRequiredEnv("TEXTBEE_DEVICE_ID"),
+    simSubscriptionId: readOptionalIntegerEnv("TEXTBEE_SIM_SUBSCRIPTION_ID"),
+    apiBaseUrl: readOptionalEnv("TEXTBEE_API_BASE_URL") ?? "https://api.textbee.dev/api/v1",
   };
 }
 
@@ -111,6 +105,19 @@ function getProviderCode(value: unknown): string | null {
   return null;
 }
 
+function getMessageId(value: unknown): string | null {
+  return (
+    getStringField(value, "id") ??
+    getStringField(value, "smsId") ??
+    getStringField(value, "smsBatchId") ??
+    getStringField(value, "messageId")
+  );
+}
+
+function getProviderMessage(value: unknown): string | null {
+  return getStringField(value, "message") ?? getStringField(value, "error");
+}
+
 async function readJsonBody(response: Response): Promise<unknown> {
   const text = await response.text();
   if (!text) return null;
@@ -130,53 +137,55 @@ export async function sendSms(input: SendSmsInput): Promise<SendSmsResult> {
     throw new SmsSendError("SMS_CONFIGURATION_ERROR", "SMS recipient and body are required.");
   }
 
-  const config = readTwilioConfig();
-  const payload = new URLSearchParams({
-    To: to,
-    Body: body,
-  });
+  const config = readTextBeeConfig();
+  const payload: {
+    recipients: string[];
+    message: string;
+    simSubscriptionId?: number;
+  } = {
+    recipients: [to],
+    message: body,
+  };
 
-  if (config.messagingServiceSid) {
-    payload.set("MessagingServiceSid", config.messagingServiceSid);
-  } else if (config.fromPhoneNumber) {
-    payload.set("From", config.fromPhoneNumber);
+  if (config.simSubscriptionId !== null) {
+    payload.simSubscriptionId = config.simSubscriptionId;
   }
 
   let response: Response;
   try {
     response = await fetch(
-      `${config.apiBaseUrl}/Accounts/${encodeURIComponent(config.accountSid)}/Messages.json`,
+      `${config.apiBaseUrl}/gateway/devices/${encodeURIComponent(config.deviceId)}/send-sms`,
       {
         method: "POST",
         headers: {
-          Authorization: `Basic ${Buffer.from(`${config.accountSid}:${config.authToken}`).toString("base64")}`,
-          "Content-Type": "application/x-www-form-urlencoded",
+          "Content-Type": "application/json",
+          "x-api-key": config.apiKey,
         },
-        body: payload,
+        body: JSON.stringify(payload),
       },
     );
   } catch (error) {
-    throw new SmsSendError("SMS_PROVIDER_ERROR", "SMS provider request failed.", { cause: error });
+    throw new SmsSendError("SMS_DELIVERY_ERROR", "SMS provider request failed.", { cause: error });
   }
 
   const responseBody = await readJsonBody(response);
   if (!response.ok) {
-    throw new SmsSendError("SMS_PROVIDER_ERROR", "SMS provider rejected the message.", {
-      providerStatus: response.status,
-      providerCode: getProviderCode(responseBody),
-    });
-  }
-
-  const messageId = getStringField(responseBody, "sid");
-  if (!messageId) {
-    throw new SmsSendError("SMS_PROVIDER_ERROR", "SMS provider returned an invalid response.", {
-      providerStatus: response.status,
-    });
+    const providerMessage = getProviderMessage(responseBody);
+    throw new SmsSendError(
+      "SMS_DELIVERY_ERROR",
+      providerMessage
+        ? `SMS provider rejected the message: ${providerMessage}`
+        : "SMS provider rejected the message.",
+      {
+        providerStatus: response.status,
+        providerCode: getProviderCode(responseBody),
+      },
+    );
   }
 
   return {
-    provider: "twilio",
-    messageId,
+    provider: "textbee",
+    messageId: getMessageId(responseBody) ?? "accepted",
     status: getStringField(responseBody, "status"),
   };
 }
