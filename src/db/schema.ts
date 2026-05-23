@@ -26,8 +26,14 @@ const citext = customType<{ data: string }>({
 
 export interface PreferencesMetadata {
   theme?: string;
-  volume?: number;
-  [key: string]: unknown;
+  musicTrackId?: string | null;
+  musicVolume?: number;
+  voicePromptEnabled?: boolean;
+  highContrastEnabled?: boolean;
+  reducedMotionEnabled?: boolean;
+  brightnessLevel?: number;
+  timeoutSeconds?: number;
+  calmingStoryEnabled?: boolean;
 }
 
 // Tables

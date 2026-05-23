@@ -671,6 +671,232 @@ DELETE /children/:childId
 - [403 Forbidden] - Possible `type` values: ACCOUNT_BANNED, PARENT_NOT_ACTIVE, CHILD_NOT_OWNED.
 - [404 Not Found] - Possible `type` values: PARENT_NOT_FOUND, CHILD_NOT_FOUND.
 
+# Preference Endpoints:
+
+## Get child preferences
+
+- Endpoint:
+
+```text
+GET /children/:childId/preferences
+```
+
+- Description: Returns sensory/UI preferences for a child profile owned by the authenticated parent.
+- Auth required: Yes
+
+### Request parameters:
+
+- childId (string, Required): UUID of the child profile.
+
+### Responses:
+
+- [200 OK] - Preferences returned successfully.
+
+```json
+{
+  "preferences": {
+    "child_id": "323e4567-e89b-12d3-a456-426614174000",
+    "is_high_contrast": false,
+    "preferences": {
+      "theme": "default",
+      "music_volume": 40,
+      "voice_prompt_enabled": true,
+      "reduced_motion_enabled": false,
+      "brightness_level": 80,
+      "timeout_seconds": 60,
+      "calming_story_enabled": true
+    },
+    "created_at": "2026-05-21T07:14:22.170Z",
+    "updated_at": "2026-05-21T07:14:22.170Z"
+  }
+}
+```
+
+- [400 Bad Request] - Possible `type` values: INVALID_CHILD_ID.
+- [401 Unauthorized] - Possible `type` values: MISSING_SESSION_TOKEN, INVALID_SESSION.
+- [403 Forbidden] - Possible `type` values: ACCOUNT_BANNED, PARENT_NOT_ACTIVE, CHILD_NOT_OWNED.
+- [404 Not Found] - Possible `type` values: PARENT_NOT_FOUND, CHILD_NOT_FOUND, PREFERENCES_NOT_FOUND.
+
+## Update child preferences
+
+- Endpoint:
+
+```text
+PATCH /children/:childId/preferences
+```
+
+- Description: Updates typed sensory/UI preferences for a child profile owned by the authenticated parent.
+- Auth required: Yes
+
+### Request parameters:
+
+- childId (string, Required): UUID of the child profile.
+
+### Request body (application/json):
+
+- is_high_contrast (boolean, Optional): Fast high-contrast flag.
+- preferences (object, Optional): Typed settings object. Allowed keys: `theme`, `music_track_id`, `music_volume`, `voice_prompt_enabled`, `high_contrast_enabled`, `reduced_motion_enabled`, `brightness_level`, `timeout_seconds`, `calming_story_enabled`.
+
+```json
+{
+  "is_high_contrast": true,
+  "preferences": {
+    "theme": "high_contrast",
+    "music_track_id": "calm-1",
+    "music_volume": 35,
+    "voice_prompt_enabled": true,
+    "reduced_motion_enabled": true,
+    "brightness_level": 70,
+    "timeout_seconds": 90,
+    "calming_story_enabled": true
+  }
+}
+```
+
+### Responses:
+
+- [200 OK] - Preferences updated successfully.
+- [400 Bad Request] - Possible `type` values: INVALID_JSON, INVALID_CHILD_ID, MISSING_UPDATE_FIELDS, INVALID_IS_HIGH_CONTRAST, INVALID_PREFERENCES.
+- [401 Unauthorized] - Possible `type` values: MISSING_SESSION_TOKEN, INVALID_SESSION.
+- [403 Forbidden] - Possible `type` values: ACCOUNT_BANNED, PARENT_NOT_ACTIVE, CHILD_NOT_OWNED.
+- [404 Not Found] - Possible `type` values: PARENT_NOT_FOUND, CHILD_NOT_FOUND, PREFERENCES_NOT_FOUND.
+
+# Learning Content Endpoints:
+
+## List child contents
+
+- Endpoint:
+
+```text
+GET /children/:childId/contents
+```
+
+- Description: Lists published, non-deleted learning content for a child, including unlock state and progress summary.
+- Auth required: Yes
+
+### Request parameters:
+
+- childId (string, Required): UUID of the child profile.
+
+### Query parameters:
+
+- type (string, Optional): `LECTURE`, `QUIZ`, or `GAME`.
+- difficulty_level (number, Optional): Integer from 1 to 3.
+- include_locked (boolean string, Optional): Defaults to `true`. Use `false` to return only unlocked content.
+
+### Responses:
+
+- [200 OK] - Contents returned successfully.
+
+```json
+{
+  "contents": [
+    {
+      "id": "723e4567-e89b-12d3-a456-426614174000",
+      "title": "Happy Faces",
+      "type": "LECTURE",
+      "status": "PUBLISHED",
+      "created_by": null,
+      "created_at": "2026-05-21T07:14:22.170Z",
+      "updated_at": "2026-05-21T07:14:22.170Z",
+      "deleted_at": null,
+      "difficulty_level": 1,
+      "unlock_star_cost": 0,
+      "is_unlocked": true,
+      "unlock": {
+        "id": "823e4567-e89b-12d3-a456-426614174000",
+        "unlocked_at": "2026-05-21T07:14:22.170Z"
+      },
+      "progress": {
+        "total_sessions": 3,
+        "completed_sessions": 2,
+        "stars_earned": 1,
+        "last_session_at": "2026-05-21T07:20:00.000Z"
+      },
+      "lecture": {
+        "media_url": "content/happy.png",
+        "description": "Recognize happy expressions.",
+        "difficulty_level": 1,
+        "is_default": true
+      },
+      "quiz": null,
+      "game": null
+    }
+  ]
+}
+```
+
+- [400 Bad Request] - Possible `type` values: INVALID_CHILD_ID, INVALID_CONTENT_TYPE, INVALID_DIFFICULTY_LEVEL, INVALID_INCLUDE_LOCKED.
+- [401 Unauthorized] - Possible `type` values: MISSING_SESSION_TOKEN, INVALID_SESSION.
+- [403 Forbidden] - Possible `type` values: ACCOUNT_BANNED, PARENT_NOT_ACTIVE, CHILD_NOT_OWNED.
+- [404 Not Found] - Possible `type` values: PARENT_NOT_FOUND, CHILD_NOT_FOUND.
+
+## Get content detail
+
+- Endpoint:
+
+```text
+GET /contents/:contentId
+```
+
+- Description: Returns a published, non-deleted content item. Optional `child_id` adds unlock state and progress for an owned child.
+- Auth required: Yes
+
+### Request parameters:
+
+- contentId (string, Required): UUID of the content.
+
+### Query parameters:
+
+- child_id (string, Optional): UUID of an owned child profile.
+
+### Responses:
+
+- [200 OK] - Content returned successfully. Response shape matches one item from `GET /children/:childId/contents`.
+- [400 Bad Request] - Possible `type` values: INVALID_CONTENT_ID, INVALID_CHILD_ID.
+- [401 Unauthorized] - Possible `type` values: MISSING_SESSION_TOKEN, INVALID_SESSION.
+- [403 Forbidden] - Possible `type` values: ACCOUNT_BANNED, PARENT_NOT_ACTIVE, CHILD_NOT_OWNED.
+- [404 Not Found] - Possible `type` values: USER_NOT_FOUND, PARENT_NOT_FOUND, CHILD_NOT_FOUND, CONTENT_NOT_FOUND.
+
+## Unlock child content
+
+- Endpoint:
+
+```text
+POST /children/:childId/contents/:contentId/unlock
+```
+
+- Description: Atomically spends a child's stars and creates an unlock record for published content.
+- Auth required: Yes
+
+### Request parameters:
+
+- childId (string, Required): UUID of the child profile.
+- contentId (string, Required): UUID of the content.
+
+### Responses:
+
+- [201 Created] - Content unlocked successfully.
+
+```json
+{
+  "message": "Content unlocked successfully.",
+  "child_total_stars": 4,
+  "unlock": {
+    "id": "823e4567-e89b-12d3-a456-426614174000",
+    "child_id": "323e4567-e89b-12d3-a456-426614174000",
+    "content_id": "723e4567-e89b-12d3-a456-426614174000",
+    "unlocked_at": "2026-05-21T07:14:22.170Z"
+  }
+}
+```
+
+- [400 Bad Request] - Possible `type` values: INVALID_CHILD_ID, INVALID_CONTENT_ID.
+- [401 Unauthorized] - Possible `type` values: MISSING_SESSION_TOKEN, INVALID_SESSION.
+- [403 Forbidden] - Possible `type` values: ACCOUNT_BANNED, PARENT_NOT_ACTIVE, CHILD_NOT_OWNED.
+- [404 Not Found] - Possible `type` values: PARENT_NOT_FOUND, CHILD_NOT_FOUND, CONTENT_NOT_FOUND.
+- [409 Conflict] - Possible `type` values: CONTENT_ALREADY_UNLOCKED, INSUFFICIENT_STARS.
+
 # Pet Store Endpoints:
 
 ## List active pets
@@ -849,6 +1075,136 @@ PATCH /children/:childId/pets/:childPetId
 - [403 Forbidden] - Possible `type` values: ACCOUNT_BANNED, PARENT_NOT_ACTIVE, CHILD_NOT_OWNED.
 - [404 Not Found] - Possible `type` values: PARENT_NOT_FOUND, CHILD_NOT_FOUND, CHILD_PET_NOT_FOUND.
 
+# Admin Pet Catalog Endpoints:
+
+Admin endpoints require an authenticated user with `role = ADMIN` and `status = ACTIVE`.
+
+## List admin pets
+
+- Endpoint:
+
+```text
+GET /admin/pets
+```
+
+- Description: Lists non-deleted pet catalog items, including hidden pets.
+- Auth required: Yes, admin only
+
+### Query parameters:
+
+- status (string, Optional): `ACTIVE` or `HIDDEN`.
+- search (string, Optional): Search by pet name or description, 120 characters or fewer.
+- limit (number, Optional): Integer from 1 to 100. Defaults to 50.
+
+### Responses:
+
+- [200 OK] - Pets returned successfully.
+- [400 Bad Request] - Possible `type` values: INVALID_STATUS, INVALID_SEARCH, INVALID_LIMIT.
+- [401 Unauthorized] - Possible `type` values: MISSING_SESSION_TOKEN, INVALID_SESSION.
+- [403 Forbidden] - Possible `type` values: ACCOUNT_BANNED, NOT_ADMIN.
+- [404 Not Found] - Possible `type` values: ADMIN_NOT_FOUND.
+
+## Create admin pet
+
+- Endpoint:
+
+```text
+POST /admin/pets
+```
+
+- Description: Creates a pet catalog item.
+- Auth required: Yes, admin only
+
+### Request body (application/json):
+
+- name (string, Required): Pet name, 80 characters or fewer.
+- description (string or null, Optional): Description, 500 characters or fewer.
+- image_url (string, Required): Image key or URL, 2048 characters or fewer.
+- animation_url (string or null, Optional): Animation key or URL, 2048 characters or fewer.
+- unlock_star_cost (number, Required): Non-negative integer.
+- status (string, Optional): `ACTIVE` or `HIDDEN`. Defaults to `ACTIVE`.
+
+### Responses:
+
+- [201 Created] - Pet catalog item created successfully.
+
+```json
+{
+  "message": "Pet catalog item created successfully.",
+  "pet": {
+    "id": "523e4567-e89b-12d3-a456-426614174000",
+    "name": "Calm Cat",
+    "description": "A calming companion.",
+    "image_url": "pets/calm-cat.png",
+    "animation_url": null,
+    "unlock_star_cost": 10,
+    "status": "ACTIVE",
+    "created_at": "2026-05-21T07:14:22.170Z",
+    "updated_at": "2026-05-21T07:14:22.170Z",
+    "deleted_at": null
+  }
+}
+```
+
+- [400 Bad Request] - Possible `type` values: INVALID_JSON, INVALID_NAME, INVALID_DESCRIPTION, INVALID_IMAGE_URL, INVALID_ANIMATION_URL, INVALID_UNLOCK_STAR_COST, INVALID_STATUS.
+- [401 Unauthorized] - Possible `type` values: MISSING_SESSION_TOKEN, INVALID_SESSION.
+- [403 Forbidden] - Possible `type` values: ACCOUNT_BANNED, NOT_ADMIN.
+- [404 Not Found] - Possible `type` values: ADMIN_NOT_FOUND.
+
+## Update admin pet
+
+- Endpoint:
+
+```text
+PATCH /admin/pets/:petId
+```
+
+- Description: Updates mutable pet catalog fields.
+- Auth required: Yes, admin only
+
+### Request parameters:
+
+- petId (string, Required): UUID of the pet catalog item.
+
+### Request body (application/json):
+
+- Any subset of `name`, `description`, `image_url`, `animation_url`, `unlock_star_cost`, and `status`.
+
+### Responses:
+
+- [200 OK] - Pet catalog item updated successfully.
+- [400 Bad Request] - Possible `type` values: INVALID_JSON, INVALID_PET_ID, MISSING_UPDATE_FIELDS, INVALID_NAME, INVALID_DESCRIPTION, INVALID_IMAGE_URL, INVALID_ANIMATION_URL, INVALID_UNLOCK_STAR_COST, INVALID_STATUS.
+- [401 Unauthorized] - Possible `type` values: MISSING_SESSION_TOKEN, INVALID_SESSION.
+- [403 Forbidden] - Possible `type` values: ACCOUNT_BANNED, NOT_ADMIN.
+- [404 Not Found] - Possible `type` values: ADMIN_NOT_FOUND, PET_NOT_FOUND.
+
+## Delete admin pet
+
+- Endpoint:
+
+```text
+DELETE /admin/pets/:petId
+```
+
+- Description: Soft-deletes a pet catalog item by setting `deleted_at` and hiding it from normal store flows. Child ownership history remains intact.
+- Auth required: Yes, admin only
+
+### Request parameters:
+
+- petId (string, Required): UUID of the pet catalog item.
+
+### Request body (application/json):
+
+- confirmation (string, Required): Must be exactly `DELETE`.
+
+### Responses:
+
+- [200 OK] - Pet catalog item deleted successfully.
+- [400 Bad Request] - Possible `type` values: INVALID_JSON, INVALID_PET_ID, MISSING_CONFIRMATION, INVALID_CONFIRMATION.
+- [401 Unauthorized] - Possible `type` values: MISSING_SESSION_TOKEN, INVALID_SESSION.
+- [403 Forbidden] - Possible `type` values: ACCOUNT_BANNED, NOT_ADMIN.
+- [404 Not Found] - Possible `type` values: ADMIN_NOT_FOUND, PET_NOT_FOUND.
+
 # Tracking Endpoints:
 
 ## Record an emotion log
@@ -903,6 +1259,55 @@ POST /children/:childId/emotion-logs
 - [401 Unauthorized] - Possible `type` values: MISSING_SESSION_TOKEN, INVALID_SESSION.
 - [403 Forbidden] - Possible `type` values: ACCOUNT_BANNED, CHILD_NOT_OWNED_BY_PARENT.
 - [404 Not Found] - Possible `type` values: CHILD_NOT_FOUND.
+
+## List emotion logs
+
+- Endpoint:
+
+```text
+GET /children/:childId/emotion-logs
+```
+
+- Description: Lists emotion logs for a child profile owned by the authenticated parent. Supports bounded cursor pagination by `created_at`.
+- Auth required: Yes
+
+### Request parameters:
+
+- childId (string, Required): UUID of the child profile.
+
+### Query parameters:
+
+- emotion (string, Optional): One of the supported emotion values.
+- trigger_source (string, Optional): One of the supported trigger sources.
+- from (string, Optional): ISO date lower bound.
+- to (string, Optional): ISO date upper bound.
+- cursor (string, Optional): ISO `created_at` cursor returned as `next_cursor`.
+- limit (number, Optional): Integer from 1 to 100. Defaults to 50.
+
+### Responses:
+
+- [200 OK] - Emotion logs returned successfully.
+
+```json
+{
+  "logs": [
+    {
+      "id": "423e4567-e89b-12d3-a456-426614174000",
+      "child_id": "323e4567-e89b-12d3-a456-426614174000",
+      "emotion_value": "HAPPY",
+      "trigger_source": "GAME",
+      "duration_seconds": 60,
+      "created_at": "2026-05-21T07:14:22.170Z"
+    }
+  ],
+  "next_cursor": null
+}
+```
+
+- [400 Bad Request] - Possible `type` values: INVALID_CHILD_ID, INVALID_EMOTION_VALUE, INVALID_TRIGGER_SOURCE, INVALID_DATE_RANGE, INVALID_CURSOR, INVALID_LIMIT.
+- [401 Unauthorized] - Possible `type` values: MISSING_SESSION_TOKEN, INVALID_SESSION.
+- [403 Forbidden] - Possible `type` values: ACCOUNT_BANNED, PARENT_NOT_ACTIVE, CHILD_NOT_OWNED.
+- [404 Not Found] - Possible `type` values: PARENT_NOT_FOUND, CHILD_NOT_FOUND.
 
 ## Get child dashboard
 

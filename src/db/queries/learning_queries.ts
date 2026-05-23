@@ -1,4 +1,4 @@
-import { eq, and, desc, exists, gt, isNull, sql } from "drizzle-orm";
+import { eq, and, desc, exists, gt, isNull, sql, type SQL } from "drizzle-orm";
 import type { DbExecutor } from "../client";
 import { contents, contentSessions, childProfiles, unlockContent } from "../schema";
 import { randomUUID } from "crypto";
@@ -32,6 +32,69 @@ export async function getContentDetailsById(db: DbExecutor, contentId: string) {
 
   if (!contentDetail) throw new Error(`[ERROR] Content ${contentId} not found.`);
   return contentDetail;
+}
+
+export type PublishedContentCatalogFilters = {
+  type?: string;
+};
+
+export async function getPublishedContentCatalog(
+  db: DbExecutor,
+  filters: PublishedContentCatalogFilters = {},
+) {
+  const conditions: SQL<unknown>[] = [eq(contents.status, "PUBLISHED"), isNull(contents.deletedAt)];
+
+  if (filters.type !== undefined) {
+    conditions.push(eq(contents.type, filters.type));
+  }
+
+  return await db.query.contents.findMany({
+    where: and(...conditions),
+    with: { lecture: true, quiz: true, game: true },
+    orderBy: (contents, { asc }) => [asc(contents.type), asc(contents.title)],
+  });
+}
+
+export async function findPublishedContentDetailById(db: DbExecutor, contentId: string) {
+  return await db.query.contents.findFirst({
+    where: and(
+      eq(contents.id, contentId),
+      eq(contents.status, "PUBLISHED"),
+      isNull(contents.deletedAt),
+    ),
+    with: { lecture: true, quiz: true, game: true },
+  });
+}
+
+export async function getChildContentUnlocks(db: DbExecutor, childId: string) {
+  return await db.query.unlockContent.findMany({
+    where: eq(unlockContent.childId, childId),
+  });
+}
+
+export async function getChildContentUnlockByContentId(
+  db: DbExecutor,
+  childId: string,
+  contentId: string,
+) {
+  return await db.query.unlockContent.findFirst({
+    where: and(eq(unlockContent.childId, childId), eq(unlockContent.contentId, contentId)),
+  });
+}
+
+export async function getChildContentProgressRows(db: DbExecutor, childId: string) {
+  return await db
+    .select({
+      contentId: unlockContent.contentId,
+      totalSessions: sql<number>`count(${contentSessions.id})::int`,
+      completedSessions: sql<number>`count(CASE WHEN ${contentSessions.status} = 'COMPLETED' THEN 1 END)::int`,
+      starsEarned: sql<number>`coalesce(sum(${contentSessions.starsEarned}), 0)::int`,
+      lastSessionAt: sql<string | null>`max(${contentSessions.createdAt})`,
+    })
+    .from(contentSessions)
+    .innerJoin(unlockContent, eq(unlockContent.id, contentSessions.unlockContentId))
+    .where(eq(contentSessions.childId, childId))
+    .groupBy(unlockContent.contentId);
 }
 
 export async function unlockNewContent(db: DbExecutor, childId: string, contentId: string) {

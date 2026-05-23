@@ -4,6 +4,7 @@ import { deleteChildProfile } from "../usecases/children/delete_child_profile.ts
 import { getChildProfile } from "../usecases/children/get_child_profile.ts";
 import { listChildProfiles } from "../usecases/children/list_child_profiles.ts";
 import { updateChildProfile } from "../usecases/children/update_child_profile.ts";
+import { toPreferenceSettingsResponse } from "../usecases/preferences/preference_settings.ts";
 import { withApiErrorHandler } from "./api_error_handler.ts";
 import { requireAuth } from "./middleware/require_auth.ts";
 
@@ -68,7 +69,7 @@ const protectedChildrenRouter = new Elysia()
         preferences: child.preferences
           ? {
               is_high_contrast: child.preferences.isHighContrast,
-              preferences: child.preferences.preferencesData,
+              preferences: toPreferenceSettingsResponse(child.preferences.preferencesData),
             }
           : null,
       })),
@@ -94,7 +95,7 @@ const protectedChildrenRouter = new Elysia()
         preferences: child.preferences
           ? {
               is_high_contrast: child.preferences.isHighContrast,
-              preferences: child.preferences.preferencesData,
+              preferences: toPreferenceSettingsResponse(child.preferences.preferencesData),
             }
           : null,
       },

@@ -36,7 +36,7 @@ export type LogEmotionResult = {
   createdAt: string;
 };
 
-const VALID_EMOTIONS = new Set([
+export const VALID_EMOTIONS = new Set([
   "HAPPY",
   "SAD",
   "ANGRY",
@@ -47,7 +47,14 @@ const VALID_EMOTIONS = new Set([
   "SURPRISED",
 ]);
 
-const VALID_TRIGGER_SOURCES = new Set(["AAC_BOARD", "GAME", "QUIZ", "LECTURE", "WEBCAM", "SYSTEM"]);
+export const VALID_TRIGGER_SOURCES = new Set([
+  "AAC_BOARD",
+  "GAME",
+  "QUIZ",
+  "LECTURE",
+  "WEBCAM",
+  "SYSTEM",
+]);
 
 function normalizeParentId(parentId: string): string {
   const value = parentId.trim();
