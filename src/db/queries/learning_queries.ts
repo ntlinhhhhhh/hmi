@@ -1,6 +1,6 @@
-import { eq, and, desc, exists, gt, isNull, sql, type SQL } from "drizzle-orm";
+import { eq, and, desc, exists, gt, gte, lte, lt, isNull, sql, type SQL } from "drizzle-orm";
 import type { DbExecutor } from "../client";
-import { contents, contentSessions, childProfiles, unlockContent } from "../schema";
+import { contents, contentSessions, childProfiles, unlockContent, starTransactions } from "../schema";
 import { randomUUID } from "crypto";
 import { MAX_CONTENT_COMPLETION_REWARD_STARS } from "../../domain/reward_policy.ts";
 
@@ -79,6 +79,26 @@ export async function getChildContentUnlockByContentId(
 ) {
   return await db.query.unlockContent.findFirst({
     where: and(eq(unlockContent.childId, childId), eq(unlockContent.contentId, contentId)),
+  });
+}
+
+export async function getContentSessionByChildIdempotencyKey(
+  db: DbExecutor,
+  childId: string,
+  idempotencyKey: string,
+) {
+  return await db.query.contentSessions.findFirst({
+    where: and(
+      eq(contentSessions.childId, childId),
+      eq(contentSessions.idempotencyKey, idempotencyKey),
+    ),
+    with: {
+      unlockContent: {
+        with: {
+          content: true,
+        },
+      },
+    },
   });
 }
 
@@ -177,6 +197,14 @@ export async function finishContentSessionTx(
 
     if (!updatedProfile)
       throw new Error(`[ERROR] Profile ${sessionData.childId} not found to add stars.`);
+
+    await db.insert(starTransactions).values({
+      id: randomUUID(),
+      childId: sessionData.childId,
+      amount: effectiveEarnedStars,
+      type: "LEARNING_REWARD",
+      sourceId: session.id,
+    });
   }
 
   return session;
@@ -195,6 +223,61 @@ export async function getChildLearningHistory(db: DbExecutor, childId: string, l
     orderBy: [desc(contentSessions.createdAt)],
     limit: limit,
   });
+}
+
+export type ContentSessionListFilters = {
+  type?: string;
+  status?: string;
+  from?: string;
+  to?: string;
+  cursor?: string;
+  limit: number;
+};
+
+export async function listChildContentSessionRows(
+  db: DbExecutor,
+  childId: string,
+  filters: ContentSessionListFilters,
+) {
+  const conditions: SQL<unknown>[] = [eq(contentSessions.childId, childId)];
+
+  if (filters.status !== undefined) {
+    conditions.push(eq(contentSessions.status, filters.status));
+  }
+  if (filters.from !== undefined) {
+    conditions.push(gte(contentSessions.createdAt, filters.from));
+  }
+  if (filters.to !== undefined) {
+    conditions.push(lte(contentSessions.createdAt, filters.to));
+  }
+  if (filters.cursor !== undefined) {
+    conditions.push(lt(contentSessions.createdAt, filters.cursor));
+  }
+
+  if (filters.type !== undefined) {
+    return await db
+      .select({
+        session: contentSessions,
+        contentId: unlockContent.contentId,
+      })
+      .from(contentSessions)
+      .innerJoin(unlockContent, eq(unlockContent.id, contentSessions.unlockContentId))
+      .innerJoin(contents, eq(contents.id, unlockContent.contentId))
+      .where(and(...conditions, eq(contents.type, filters.type), isNull(contents.deletedAt)))
+      .orderBy(desc(contentSessions.createdAt))
+      .limit(filters.limit);
+  } else {
+    return await db
+      .select({
+        session: contentSessions,
+        contentId: unlockContent.contentId,
+      })
+      .from(contentSessions)
+      .innerJoin(unlockContent, eq(unlockContent.id, contentSessions.unlockContentId))
+      .where(and(...conditions))
+      .orderBy(desc(contentSessions.createdAt))
+      .limit(filters.limit);
+  }
 }
 
 export async function getLearningSummary(db: DbExecutor, childId: string) {

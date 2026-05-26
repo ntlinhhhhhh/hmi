@@ -1,18 +1,29 @@
-import { eq, and, isNull, sql, gte, ilike, or, type SQL } from "drizzle-orm";
+import { eq, and, isNull, sql, gte, ilike, or, lt, type SQL } from "drizzle-orm";
 import type { DbExecutor } from "../client";
-import { pets, childPets, childProfiles, unlockContent } from "../schema";
+import { pets, childPets, childProfiles, unlockContent, starTransactions } from "../schema";
 import { randomUUID } from "crypto";
 
-export async function getActiveStorePets(db: DbExecutor) {
+export type ActiveStorePetsFilters = {
+  cursor?: string;
+  limit: number;
+};
+
+export async function getActiveStorePets(db: DbExecutor, filters: ActiveStorePetsFilters) {
+  const conditions = [eq(pets.status, "ACTIVE"), isNull(pets.deletedAt)];
+  if (filters.cursor !== undefined) {
+    conditions.push(lt(pets.createdAt, filters.cursor));
+  }
   return await db.query.pets.findMany({
-    where: and(eq(pets.status, "ACTIVE"), isNull(pets.deletedAt)),
-    orderBy: (pets, { asc }) => [asc(pets.unlockStarCost)],
+    where: and(...conditions),
+    orderBy: (pets, { desc }) => [desc(pets.createdAt)],
+    limit: filters.limit,
   });
 }
 
 export type AdminPetListFilters = {
   status?: string;
   search?: string;
+  cursor?: string;
   limit: number;
 };
 
@@ -28,9 +39,13 @@ export async function getAdminStorePets(db: DbExecutor, filters: AdminPetListFil
     conditions.push(or(ilike(pets.name, pattern), ilike(pets.description, pattern))!);
   }
 
+  if (filters.cursor !== undefined) {
+    conditions.push(lt(pets.createdAt, filters.cursor));
+  }
+
   return await db.query.pets.findMany({
     where: and(...conditions),
-    orderBy: (pets, { asc }) => [asc(pets.unlockStarCost), asc(pets.name)],
+    orderBy: (pets, { desc }) => [desc(pets.createdAt)],
     limit: filters.limit,
   });
 }
@@ -109,6 +124,15 @@ export async function buyPetTx(
     .returning();
 
   if (!newChildPet) throw new Error("[ERROR] Failed to insert into child_pets.");
+
+  await db.insert(starTransactions).values({
+    id: randomUUID(),
+    childId: childId,
+    amount: -cost,
+    type: "PET_PURCHASE",
+    sourceId: newChildPet.id,
+  });
+
   return {
     childPet: newChildPet,
     childTotalStars: updatedProfile.totalStars,
@@ -142,6 +166,15 @@ export async function unlockPremiumContentTx(
     .returning();
 
   if (!newUnlock) throw new Error("[ERROR] Failed to unlock premium content.");
+
+  await db.insert(starTransactions).values({
+    id: randomUUID(),
+    childId: childId,
+    amount: -cost,
+    type: "CONTENT_UNLOCK",
+    sourceId: newUnlock.id,
+  });
+
   return {
     unlock: newUnlock,
     childTotalStars: updatedProfile.totalStars,

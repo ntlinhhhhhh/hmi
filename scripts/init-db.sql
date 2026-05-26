@@ -167,6 +167,53 @@ CREATE INDEX IF NOT EXISTS "idx_emotion_logs_child_id_created_at"
     "created_at" timestamptz_ops DESC NULLS FIRST
   );
 
+CREATE TABLE IF NOT EXISTS "regulation_events" (
+  "id" uuid PRIMARY KEY NOT NULL,
+  "child_id" uuid NOT NULL,
+  "trigger_emotion_log_id" uuid NOT NULL,
+  "action" text NOT NULL,
+  "started_at" timestamp with time zone NOT NULL,
+  "ended_at" timestamp with time zone,
+  "duration_seconds" integer,
+  "metadata" jsonb,
+  "created_at" timestamp with time zone DEFAULT now() NOT NULL,
+  CONSTRAINT "regulation_events_child_id_fkey"
+    FOREIGN KEY ("child_id") REFERENCES "child_profiles" ("id") ON DELETE cascade,
+  CONSTRAINT "regulation_events_trigger_emotion_log_id_fkey"
+    FOREIGN KEY ("trigger_emotion_log_id") REFERENCES "emotion_logs" ("id") ON DELETE cascade,
+  CONSTRAINT "regulation_events_action_check"
+    CHECK (
+      "action" = ANY (
+        ARRAY[
+          'REDUCE_BRIGHTNESS'::text,
+          'PAUSE_ANIMATION'::text,
+          'PLAY_CALMING_AUDIO'::text,
+          'VOICE_PROMPT'::text,
+          'TIMEOUT'::text,
+          'SHOW_STORY'::text,
+          'RESUME'::text
+        ]
+      )
+    ),
+  CONSTRAINT "regulation_events_duration_check"
+    CHECK ("duration_seconds" IS NULL OR "duration_seconds" > 0),
+  CONSTRAINT "regulation_events_time_check"
+    CHECK ("ended_at" IS NULL OR "ended_at" >= "started_at"),
+  CONSTRAINT "regulation_events_metadata_object_check"
+    CHECK ("metadata" IS NULL OR jsonb_typeof("metadata") = 'object')
+);
+
+CREATE INDEX IF NOT EXISTS "idx_regulation_events_child_id_created_at"
+  ON "regulation_events" USING btree (
+    "child_id" uuid_ops ASC NULLS LAST,
+    "created_at" timestamptz_ops DESC NULLS FIRST
+  );
+
+CREATE INDEX IF NOT EXISTS "idx_regulation_events_trigger_emotion_log_id"
+  ON "regulation_events" USING btree (
+    "trigger_emotion_log_id" uuid_ops ASC NULLS LAST
+  );
+
 CREATE TABLE IF NOT EXISTS "contents" (
   "id" uuid PRIMARY KEY NOT NULL,
   "title" text NOT NULL,
@@ -316,6 +363,14 @@ CREATE TABLE IF NOT EXISTS "content_sessions" (
   CONSTRAINT "content_sessions_status_check"
     CHECK ("status" = ANY (ARRAY['COMPLETED'::text, 'ABANDONED'::text])),
   CONSTRAINT "content_sessions_stars_check" CHECK ("stars_earned" >= 0),
+  CONSTRAINT "content_sessions_duration_check"
+    CHECK ("duration_seconds" IS NULL OR "duration_seconds" > 0),
+  CONSTRAINT "content_sessions_time_check"
+    CHECK (
+      "completed_at" IS NULL
+      OR "started_at" IS NULL
+      OR "completed_at" >= "started_at"
+    ),
   CONSTRAINT "content_sessions_ai_confidence_check"
     CHECK ("ai_confidence" IS NULL OR ("ai_confidence" >= 0 AND "ai_confidence" <= 1)),
   CONSTRAINT "content_sessions_ai_scores_object_check"
@@ -336,6 +391,26 @@ ALTER TABLE "content_sessions"
 
 DO $$
 BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'content_sessions_duration_check'
+  ) THEN
+    ALTER TABLE "content_sessions"
+      ADD CONSTRAINT "content_sessions_duration_check"
+      CHECK ("duration_seconds" IS NULL OR "duration_seconds" > 0);
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'content_sessions_time_check'
+  ) THEN
+    ALTER TABLE "content_sessions"
+      ADD CONSTRAINT "content_sessions_time_check"
+      CHECK (
+        "completed_at" IS NULL
+        OR "started_at" IS NULL
+        OR "completed_at" >= "started_at"
+      );
+  END IF;
+
   IF NOT EXISTS (
     SELECT 1 FROM pg_constraint WHERE conname = 'content_sessions_ai_confidence_check'
   ) THEN
@@ -414,3 +489,39 @@ CREATE TABLE IF NOT EXISTS "child_pets" (
 
 CREATE INDEX IF NOT EXISTS "idx_child_pets_child_id"
   ON "child_pets" USING btree ("child_id" uuid_ops ASC NULLS LAST);
+
+CREATE TABLE IF NOT EXISTS "device_tokens" (
+  "id" uuid PRIMARY KEY NOT NULL,
+  "user_id" uuid NOT NULL,
+  "platform" text NOT NULL,
+  "push_token" text NOT NULL,
+  "app_instance_id" text,
+  "is_active" boolean DEFAULT true NOT NULL,
+  "created_at" timestamp with time zone DEFAULT now() NOT NULL,
+  "updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+  CONSTRAINT "device_tokens_user_id_fkey"
+    FOREIGN KEY ("user_id") REFERENCES "users" ("id") ON DELETE cascade,
+  CONSTRAINT "device_tokens_push_token_key" UNIQUE ("push_token"),
+  CONSTRAINT "device_tokens_platform_check" CHECK ("platform" = ANY (ARRAY['WEB'::text, 'IOS'::text, 'ANDROID'::text]))
+);
+
+CREATE INDEX IF NOT EXISTS "idx_device_tokens_user_id"
+  ON "device_tokens" USING btree ("user_id" uuid_ops ASC NULLS LAST);
+
+ALTER TABLE "child_profiles" ADD COLUMN IF NOT EXISTS "webcam_consent" boolean DEFAULT false NOT NULL;
+
+CREATE TABLE IF NOT EXISTS "star_transactions" (
+  "id" uuid PRIMARY KEY NOT NULL,
+  "child_id" uuid NOT NULL,
+  "amount" integer NOT NULL,
+  "type" text NOT NULL,
+  "source_id" uuid NOT NULL,
+  "created_at" timestamp with time zone DEFAULT now() NOT NULL,
+  CONSTRAINT "star_transactions_child_id_fkey"
+    FOREIGN KEY ("child_id") REFERENCES "child_profiles" ("id") ON DELETE cascade,
+  CONSTRAINT "star_transactions_type_check"
+    CHECK ("type" = ANY (ARRAY['LEARNING_REWARD'::text, 'CONTENT_UNLOCK'::text, 'PET_PURCHASE'::text]))
+);
+
+CREATE INDEX IF NOT EXISTS "idx_star_transactions_child_id_created_at"
+  ON "star_transactions" USING btree ("child_id" uuid_ops ASC NULLS LAST, "created_at" timestamptz_ops DESC NULLS FIRST);

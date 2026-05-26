@@ -1,6 +1,12 @@
 import { Elysia, t } from "elysia";
 import { getContentDetail } from "../usecases/content/get_content_detail.ts";
 import { listChildContents } from "../usecases/content/list_child_contents.ts";
+import { listChildContentSessions } from "../usecases/content/list_child_content_sessions.ts";
+import { listChildStarTransactions } from "../usecases/content/list_child_star_transactions.ts";
+import {
+  recordContentSession,
+  type ContentSessionResult,
+} from "../usecases/content/record_content_session.ts";
 import { unlockChildContent } from "../usecases/content/unlock_child_content.ts";
 import type { ContentResult } from "../usecases/content/content_models.ts";
 import { AppError } from "../usecases/app_error.ts";
@@ -85,8 +91,119 @@ function formatContent(content: ContentResult) {
   };
 }
 
+interface SessionFormatInput {
+  id: string;
+  childId: string;
+  contentId: string;
+  unlockContentId: string;
+  durationSeconds: number | null;
+  isCorrect: boolean | null;
+  starsEarned: number;
+  status: string;
+  idempotencyKey: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  selectedEmotion?: string | null;
+  aiMatchScore?: number | null;
+  aiDetectedEmotion?: string | null;
+  aiConfidence?: number | null;
+  aiScores?: Record<string, number> | null;
+  metadata: Record<string, unknown> | null;
+  createdAt: string;
+}
+
+function formatContentSession(session: SessionFormatInput) {
+  return {
+    id: session.id,
+    child_id: session.childId,
+    content_id: session.contentId,
+    unlock_content_id: session.unlockContentId,
+    duration_seconds: session.durationSeconds,
+    is_correct: session.isCorrect,
+    stars_earned: session.starsEarned,
+    status: session.status,
+    idempotency_key: session.idempotencyKey,
+    started_at: session.startedAt,
+    completed_at: session.completedAt,
+    selected_emotion: session.selectedEmotion ?? null,
+    ai_match_score: session.aiMatchScore ?? null,
+    ai_detected_emotion: session.aiDetectedEmotion ?? null,
+    ai_confidence: session.aiConfidence ?? null,
+    ai_scores: session.aiScores ?? null,
+    metadata: session.metadata,
+    created_at: session.createdAt,
+  };
+}
+
 const protectedContentRouter = new Elysia()
   .use(requireAuth)
+  .get(
+    "/children/:childId/content-sessions",
+    async ({ authUserId, params, query, set }) => {
+      const result = await listChildContentSessions({
+        parentId: authUserId,
+        childId: params.childId,
+        type: query.type,
+        status: query.status,
+        from: query.from,
+        to: query.to,
+        cursor: query.cursor,
+        limit: parseOptionalNumber(query.limit),
+      });
+
+      set.status = 200;
+      return {
+        sessions: result.sessions.map(formatContentSession),
+        next_cursor: result.nextCursor,
+      };
+    },
+    {
+      params: t.Object({
+        childId: t.String(),
+      }),
+      query: t.Object({
+        type: t.Optional(t.String()),
+        status: t.Optional(t.String()),
+        from: t.Optional(t.String()),
+        to: t.Optional(t.String()),
+        cursor: t.Optional(t.String()),
+        limit: t.Optional(t.String()),
+      }),
+    },
+  )
+  .get(
+    "/children/:childId/star-transactions",
+    async ({ authUserId, params, query, set }) => {
+      const result = await listChildStarTransactions({
+        parentId: authUserId,
+        childId: params.childId,
+        cursor: query.cursor,
+        limit: parseOptionalNumber(query.limit),
+      });
+
+      set.status = 200;
+      return {
+        transactions: result.transactions.map((t) => ({
+          id: t.id,
+          child_id: t.childId,
+          amount: t.amount,
+          type: t.type,
+          source_id: t.sourceId,
+          created_at: t.createdAt,
+        })),
+        next_cursor: result.nextCursor,
+      };
+    },
+    {
+      params: t.Object({
+        childId: t.String(),
+      }),
+      query: t.Object({
+        cursor: t.Optional(t.String()),
+        limit: t.Optional(t.String()),
+      }),
+    },
+  )
   .get(
     "/children/:childId/contents",
     async ({ authUserId, params, query, set }) => {
@@ -134,6 +251,56 @@ const protectedContentRouter = new Elysia()
       }),
       query: t.Object({
         child_id: t.Optional(t.String()),
+      }),
+    },
+  )
+  .post(
+    "/children/:childId/content-sessions",
+    async ({ authUserId, params, body, set }) => {
+      const result = await recordContentSession({
+        parentId: authUserId,
+        childId: params.childId,
+        contentId: body.content_id,
+        idempotencyKey: body.idempotency_key,
+        durationSeconds: body.duration_seconds,
+        status: body.status,
+        startedAt: body.started_at,
+        completedAt: body.completed_at,
+        metadata: body.metadata,
+        isCorrect: body.is_correct,
+        selectedEmotion: body.selected_emotion,
+        aiMatchScore: body.ai_match_score,
+        aiDetectedEmotion: body.ai_detected_emotion,
+        aiConfidence: body.ai_confidence,
+        aiScores: body.ai_scores,
+      });
+
+      set.status = 201;
+      return {
+        message: "Content session recorded successfully.",
+        session: formatContentSession(result.session as any),
+        stars_earned: result.session.starsEarned,
+        child_total_stars: result.childTotalStars,
+      };
+    },
+    {
+      params: t.Object({
+        childId: t.String(),
+      }),
+      body: t.Object({
+        content_id: t.String(),
+        idempotency_key: t.Optional(t.String()),
+        duration_seconds: t.Optional(t.Number()),
+        status: t.Optional(t.String()),
+        started_at: t.Optional(t.String()),
+        completed_at: t.Optional(t.String()),
+        metadata: t.Optional(t.Unknown()),
+        is_correct: t.Optional(t.Boolean()),
+        selected_emotion: t.Optional(t.String()),
+        ai_match_score: t.Optional(t.Number()),
+        ai_detected_emotion: t.Optional(t.String()),
+        ai_confidence: t.Optional(t.Number()),
+        ai_scores: t.Optional(t.Unknown()),
       }),
     },
   )

@@ -141,9 +141,9 @@ Quy tắc hiện tại:
 
 ## 9. Học, quiz, game AI và sao
 
-Điểm cần chú ý: backend hiện chưa có endpoint frontend-callable để submit hoàn thành lecture, trả lời quiz hoặc kết quả game AI. Vì vậy frontend chưa nên build luồng cộng sao như đã hoàn chỉnh.
+Backend hiện đã nhận hoàn thành/thoát giữa chừng cho `LECTURE` qua `POST /children/:childId/content-sessions`. Quiz answer và AI game result vẫn chưa có rule backend hoàn chỉnh.
 
-Logic đã có trong code cho giai đoạn sau:
+Quy tắc hiện tại:
 
 - Sao thuộc về từng hồ sơ trẻ, không thuộc tài khoản phụ huynh.
 - Backend mới là nơi tính sao; frontend không tự cộng sao.
@@ -152,6 +152,8 @@ Logic đã có trong code cho giai đoạn sau:
   - Quiz đúng: 2 sao.
   - AI game thành công: 3 sao.
 - Một trẻ chỉ được nhận reward một lần cho cùng một content. Lần hoàn thành sau vẫn có thể ghi lịch sử nhưng không cộng thêm sao.
+- Khi submit lecture session, gửi `content_id`, optional `idempotency_key`, `duration_seconds`, `status`, `started_at`, `completed_at`, `metadata`.
+- `status = COMPLETED` có thể được thưởng 1 sao lần đầu; `ABANDONED` chỉ ghi lịch sử, không thưởng.
 
 Frontend nên hiển thị số sao từ API (`total_stars`, `child_total_stars`) và refresh sau các thao tác mua/mở khóa.
 
@@ -170,7 +172,13 @@ Quy tắc alert hiện tại:
 - `GET /children/:childId/dashboard` trả dashboard theo `days`, mặc định 7 ngày, tối đa 90 ngày.
 - Dashboard hiện có learning summary, emotion counts và `meltdown_alerts`.
 
-Regulation/time-out vẫn do frontend/AI xử lý ở UI. Backend chưa có route riêng cho regulation event, push notification hoặc device token.
+Regulation/time-out vẫn do frontend/AI xử lý ở UI, nhưng backend đã có route để ghi và xem lịch sử:
+
+- `POST /children/:childId/regulation-events`
+- `GET /children/:childId/regulation-events`
+- Action hợp lệ: `REDUCE_BRIGHTNESS`, `PAUSE_ANIMATION`, `PLAY_CALMING_AUDIO`, `VOICE_PROMPT`, `TIMEOUT`, `SHOW_STORY`, `RESUME`.
+
+Backend chưa có push notification hoặc device token.
 
 ## 11. Pet store
 
@@ -186,12 +194,11 @@ Regulation/time-out vẫn do frontend/AI xử lý ở UI. Backend chưa có rout
 
 Frontend không nên coi các luồng sau là đã sẵn sàng backend:
 
-- Submit hoàn thành lecture, quiz answer, AI game result.
+- Quiz answer và AI game result.
 - Báo cáo PDF.
 - Push notification và quản lý device token.
-- Regulation event/time-out history.
 - Admin content CRUD.
-- Admin user management.
+- Admin user mutation/deletion.
 - Admin analytics toàn hệ thống.
 - Upload media asset cho content/pet.
 
@@ -213,13 +220,15 @@ Có thể thiết kế UI ở mức mock/prototype, nhưng khi build tích hợp
 
 - Chọn content đã unlock.
 - Render lecture/quiz/game theo content type.
+- Gửi lecture session khi trẻ hoàn thành hoặc thoát giữa chừng.
 - Áp dụng preferences vào màu sắc, motion, âm thanh, brightness và calm mode.
 - Gửi emotion log khi frontend/AI đã có kết quả suy ra.
+- Gửi regulation event khi UI đã áp dụng calm/time-out action.
 - Không gửi raw webcam frame về backend.
 
 **Admin app**
 
-- Hiện chỉ build phần pet catalog nếu cần tích hợp backend thật.
+- Có thể build pet catalog và user list/detail nếu cần tích hợp backend thật.
 - Content management, user management và analytics nên chờ API.
 
 ## 14. Xử lý lỗi quan trọng

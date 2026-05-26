@@ -6,6 +6,7 @@ import {
   childProfiles,
   preferences,
   emotionLogs,
+  regulationEvents,
   contents,
   lectures,
   quizzes,
@@ -14,6 +15,8 @@ import {
   contentSessions,
   pets,
   childPets,
+  deviceTokens,
+  starTransactions,
 } from "./schema";
 
 export const usersRelations = relations(users, ({ many }) => ({
@@ -21,6 +24,7 @@ export const usersRelations = relations(users, ({ many }) => ({
   contents: many(contents),
   passwordResetCodes: many(passwordResetCodes),
   sessions: many(sessions),
+  deviceTokens: many(deviceTokens),
 }));
 
 export const passwordResetCodesRelations = relations(passwordResetCodes, ({ one }) => ({
@@ -47,9 +51,11 @@ export const childProfilesRelations = relations(childProfiles, ({ one, many }) =
     references: [preferences.childId],
   }),
   emotionLogs: many(emotionLogs),
+  regulationEvents: many(regulationEvents),
   unlockContents: many(unlockContent),
   contentSessions: many(contentSessions),
   childPets: many(childPets),
+  starTransactions: many(starTransactions),
 }));
 
 export const preferencesRelations = relations(preferences, ({ one }) => ({
@@ -59,10 +65,22 @@ export const preferencesRelations = relations(preferences, ({ one }) => ({
   }),
 }));
 
-export const emotionLogsRelations = relations(emotionLogs, ({ one }) => ({
+export const emotionLogsRelations = relations(emotionLogs, ({ one, many }) => ({
   childProfile: one(childProfiles, {
     fields: [emotionLogs.childId],
     references: [childProfiles.id],
+  }),
+  regulationEvents: many(regulationEvents),
+}));
+
+export const regulationEventsRelations = relations(regulationEvents, ({ one }) => ({
+  childProfile: one(childProfiles, {
+    fields: [regulationEvents.childId],
+    references: [childProfiles.id],
+  }),
+  triggerEmotionLog: one(emotionLogs, {
+    fields: [regulationEvents.triggerEmotionLogId],
+    references: [emotionLogs.id],
   }),
 }));
 
@@ -142,5 +160,19 @@ export const childPetsRelations = relations(childPets, ({ one }) => ({
   pet: one(pets, {
     fields: [childPets.petId],
     references: [pets.id],
+  }),
+}));
+
+export const deviceTokensRelations = relations(deviceTokens, ({ one }) => ({
+  user: one(users, {
+    fields: [deviceTokens.userId],
+    references: [users.id],
+  }),
+}));
+
+export const starTransactionsRelations = relations(starTransactions, ({ one }) => ({
+  childProfile: one(childProfiles, {
+    fields: [starTransactions.childId],
+    references: [childProfiles.id],
   }),
 }));

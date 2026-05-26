@@ -10,7 +10,7 @@ function readBearerToken(authorizationHeader: string | undefined): string {
   return match[1].trim();
 }
 
-export const requireAuth = new Elysia({ name: "require-auth" }).resolve(
+export const requireAuth = new Elysia().resolve(
   { as: "scoped" },
   async ({ headers }) => {
     const sessionToken = readBearerToken(headers["authorization"]);

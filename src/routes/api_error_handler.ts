@@ -58,6 +58,7 @@ export const withApiErrorHandler = (app: Elysia, options: ApiErrorHandlerOptions
       };
     }
 
+    console.error("[ERROR] Unhandled server error in API router:", error);
     set.status = 500;
     return {
       error: {

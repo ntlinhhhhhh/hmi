@@ -31,6 +31,7 @@ export type CreateChildProfileInput = {
   nickname: string;
   birthYear: number;
   avatar?: UploadedAvatar;
+  webcamConsent?: boolean;
 };
 
 export type ChildProfileResult = {
@@ -40,6 +41,7 @@ export type ChildProfileResult = {
   avatarUrl: string | null;
   birthYear: number;
   totalStars: number;
+  webcamConsent: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -176,7 +178,7 @@ async function uploadAvatar(
   return objectKey;
 }
 
-async function toChildProfileResult(child: ChildProfileResult): Promise<ChildProfileResult> {
+async function toChildProfileResult(child: any): Promise<ChildProfileResult> {
   return {
     id: child.id,
     parentId: child.parentId,
@@ -184,6 +186,7 @@ async function toChildProfileResult(child: ChildProfileResult): Promise<ChildPro
     avatarUrl: child.avatarUrl ? await getFileUrl(child.avatarUrl) : null,
     birthYear: child.birthYear,
     totalStars: child.totalStars,
+    webcamConsent: !!child.webcamConsent,
     createdAt: child.createdAt,
     updatedAt: child.updatedAt,
   };
@@ -231,6 +234,7 @@ export async function createChildProfile(
           nickname,
           avatarUrl: uploadedAvatarKey,
           birthYear,
+          webcamConsent: !!input.webcamConsent,
         },
         targetDifficulty,
       ),

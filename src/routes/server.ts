@@ -5,6 +5,7 @@ import adminRouter from "./admin.ts";
 import authRouter from "./auth.ts";
 import childrenRouter from "./children.ts";
 import contentRouter from "./content.ts";
+import devicesRouter from "./devices.ts";
 import petsRouter from "./pets.ts";
 import preferencesRouter from "./preferences.ts";
 import trackingRouter from "./tracking.ts";
@@ -40,6 +41,7 @@ const app = new Elysia()
   .use(contentRouter)
   .use(petsRouter)
   .use(trackingRouter)
+  .use(devicesRouter)
   .use(adminRouter);
 
 export default app;

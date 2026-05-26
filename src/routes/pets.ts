@@ -6,26 +6,44 @@ import { renameChildPet } from "../usecases/pets/rename_child_pet.ts";
 import { withApiErrorHandler } from "./api_error_handler.ts";
 import { requireAuth } from "./middleware/require_auth.ts";
 
+function parseOptionalNumber(rawValue: string | undefined): number | undefined {
+  if (rawValue === undefined || rawValue.trim() === "") return undefined;
+  return Number(rawValue);
+}
+
 const protectedPetsRouter = new Elysia()
   .use(requireAuth)
-  .get("/pets", async ({ set }) => {
-    const pets = await listActivePets();
+  .get(
+    "/pets",
+    async ({ query, set }) => {
+      const result = await listActivePets({
+        cursor: query.cursor,
+        limit: parseOptionalNumber(query.limit),
+      });
 
-    set.status = 200;
-    return {
-      pets: pets.map((pet) => ({
-        id: pet.id,
-        name: pet.name,
-        description: pet.description,
-        image_url: pet.imageUrl,
-        animation_url: pet.animationUrl,
-        unlock_star_cost: pet.unlockStarCost,
-        status: pet.status,
-        created_at: pet.createdAt,
-        updated_at: pet.updatedAt,
-      })),
-    };
-  })
+      set.status = 200;
+      return {
+        pets: result.pets.map((pet) => ({
+          id: pet.id,
+          name: pet.name,
+          description: pet.description,
+          image_url: pet.imageUrl,
+          animation_url: pet.animationUrl,
+          unlock_star_cost: pet.unlockStarCost,
+          status: pet.status,
+          created_at: pet.createdAt,
+          updated_at: pet.updatedAt,
+        })),
+        next_cursor: result.nextCursor,
+      };
+    },
+    {
+      query: t.Object({
+        cursor: t.Optional(t.String()),
+        limit: t.Optional(t.String()),
+      }),
+    },
+  )
   .get("/children/:childId/pets", async ({ authUserId, params, set }) => {
     const childPets = await listChildPets(authUserId, params.childId);
 

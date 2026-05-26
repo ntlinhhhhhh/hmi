@@ -42,6 +42,7 @@ export type UpdateChildProfileInput = {
   childId: string;
   nickname?: string;
   avatar?: UploadedAvatar;
+  webcamConsent?: boolean;
 };
 
 const avatarContentTypes = new Map<string, string>([
@@ -150,7 +151,7 @@ async function uploadAvatar(
   return objectKey;
 }
 
-async function toChildProfileResult(child: ChildProfileResult): Promise<ChildProfileResult> {
+async function toChildProfileResult(child: any): Promise<ChildProfileResult> {
   return {
     id: child.id,
     parentId: child.parentId,
@@ -158,6 +159,7 @@ async function toChildProfileResult(child: ChildProfileResult): Promise<ChildPro
     avatarUrl: child.avatarUrl ? await getFileUrl(child.avatarUrl) : null,
     birthYear: child.birthYear,
     totalStars: child.totalStars,
+    webcamConsent: !!child.webcamConsent,
     createdAt: child.createdAt,
     updatedAt: child.updatedAt,
   };
@@ -176,7 +178,7 @@ export async function updateChildProfile(
   const nickname = normalizeNickname(input.nickname);
   const avatar = normalizeAvatar(input.avatar);
 
-  if (nickname === undefined && avatar === undefined) {
+  if (nickname === undefined && avatar === undefined && input.webcamConsent === undefined) {
     throw new AppError<UpdateChildProfileErrorType>(
       "MISSING_UPDATE_FIELDS",
       "At least one child profile field is required.",
@@ -231,6 +233,7 @@ export async function updateChildProfile(
     const updatedChild = await updateChildProfileRow(db, childId, {
       ...(nickname !== undefined ? { nickname } : {}),
       ...(uploadedAvatarKey !== null ? { avatarUrl: uploadedAvatarKey } : {}),
+      ...(input.webcamConsent !== undefined ? { webcamConsent: input.webcamConsent } : {}),
     });
     updateCommitted = true;
 

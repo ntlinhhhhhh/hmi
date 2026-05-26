@@ -19,7 +19,13 @@ export type ListAdminPetsInput = {
   adminId: string;
   status?: string;
   search?: string;
+  cursor?: string;
   limit?: number;
+};
+
+export type ListAdminPetsResult = {
+  pets: PetCatalogResult[];
+  nextCursor: string | null;
 };
 
 const DEFAULT_LIMIT = 50;
@@ -54,7 +60,7 @@ function normalizeLimit(limit: number | undefined): number {
   return limit;
 }
 
-export async function listAdminPets(input: ListAdminPetsInput): Promise<PetCatalogResult[]> {
+export async function listAdminPets(input: ListAdminPetsInput): Promise<ListAdminPetsResult> {
   const adminId = normalizeAdminId(input.adminId);
   const status = normalizePetStatus(input.status, "INVALID_STATUS");
   const search = normalizeSearch(input.search);
@@ -63,13 +69,24 @@ export async function listAdminPets(input: ListAdminPetsInput): Promise<PetCatal
   try {
     await requireActiveAdmin(adminId);
 
-    const pets = await getAdminStorePets(db, {
+    const rows = await getAdminStorePets(db, {
       status,
       search,
-      limit,
+      cursor: input.cursor,
+      limit: limit + 1,
     });
 
-    return pets.map(toPetCatalogResult);
+    const hasNextPage = rows.length > limit;
+    const slicedRows = hasNextPage ? rows.slice(0, limit) : rows;
+
+    const pets = slicedRows.map(toPetCatalogResult);
+    const lastRow = slicedRows[slicedRows.length - 1];
+    const nextCursor = hasNextPage && lastRow ? lastRow.createdAt : null;
+
+    return {
+      pets,
+      nextCursor,
+    };
   } catch (error: unknown) {
     if (error instanceof AppError) {
       throw error;
