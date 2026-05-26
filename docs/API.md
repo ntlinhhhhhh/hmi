@@ -49,6 +49,21 @@ Uploaded files are stored in S3-compatible object storage. In local development,
 
 Raw webcam frames are forbidden. Current backend endpoints store only derived emotion/game outcomes and must not accept raw webcam frame uploads.
 
+# External AI services:
+
+The HMI backend does not proxy or authenticate external AI services yet. Frontend can call them directly and send only derived results back to this backend.
+
+- Chatbot service default base URL: `http://localhost:8080`
+  - `GET /health`
+  - `POST /chat`
+- Emotion model service default base URL: `http://localhost:9000`
+  - `GET /health`
+  - `GET /model/info`
+  - `GET /model/download`
+  - `POST /model/predict`
+
+The emotion model currently returns labels `happy`, `sad`, `angry`, `fear`, and `neutral`. Backend emotion logs normalize them to `HAPPY`, `SAD`, `ANGRY`, `SCARED`, and `NEUTRAL`. The backend also keeps `STRESSED`, `CALM`, and `SURPRISED` for frontend/system-derived events.
+
 # Health Endpoints:
 
 ## Health check
@@ -826,6 +841,8 @@ GET /children/:childId/contents
 }
 ```
 
+- For `GAME` content, `game.prompt_asset_type` can be `ICON`, `IMAGE`, `VIDEO`, or `null`; this supports the current frontend plan of level 1 icon, level 2 image, and level 3 video prompts. `game.prompt_asset_url` stores the optional prompt asset location.
+
 - [400 Bad Request] - Possible `type` values: INVALID_CHILD_ID, INVALID_CONTENT_TYPE, INVALID_DIFFICULTY_LEVEL, INVALID_INCLUDE_LOCKED.
 - [401 Unauthorized] - Possible `type` values: MISSING_SESSION_TOKEN, INVALID_SESSION.
 - [403 Forbidden] - Possible `type` values: ACCOUNT_BANNED, PARENT_NOT_ACTIVE, CHILD_NOT_OWNED.
@@ -1224,16 +1241,36 @@ POST /children/:childId/emotion-logs
 
 ### Request body (application/json):
 
-- emotion_value (string, Required): One of `HAPPY`, `SAD`, `ANGRY`, `STRESSED`, `CALM`, `NEUTRAL`, `SCARED`, `SURPRISED`.
+- emotion_value (string, Optional if `ai_result.emotion` is provided): One of `HAPPY`, `SAD`, `ANGRY`, `STRESSED`, `CALM`, `NEUTRAL`, `SCARED`, `SURPRISED`. Also accepts external model labels `happy`, `sad`, `angry`, `fear`, `neutral` and normalizes them to backend values.
 - trigger_source (string, Required): One of `AAC_BOARD`, `GAME`, `QUIZ`, `LECTURE`, `WEBCAM`, `SYSTEM`.
 - duration_seconds (number, Optional): Positive integer duration in seconds.
+- confidence_score (number, Optional): Normalized confidence from 0 to 1.
+- ai_emotion_label (string, Optional): Raw emotion label from the model. Accepted labels: `happy`, `sad`, `angry`, `fear`, `neutral`.
+- ai_confidence (number, Optional): Raw model confidence from 0 to 1.
+- ai_scores (object, Optional): Per-label model scores. Keys must be supported model labels and values must be numbers from 0 to 1.
+- ai_result (object, Optional): Direct model response shape with `emotion`, `confidence`, and `all_scores`. This is a convenience wrapper for the fields above.
+- metadata (object, Optional): Extra derived client context. Must be JSON object, no raw image/frame data.
 - Example:
 
 ```json
 {
-  "emotion_value": "HAPPY",
-  "trigger_source": "GAME",
-  "duration_seconds": 60
+  "trigger_source": "WEBCAM",
+  "duration_seconds": 60,
+  "ai_result": {
+    "emotion": "fear",
+    "confidence": 0.82,
+    "all_scores": {
+      "happy": 0.02,
+      "sad": 0.08,
+      "angry": 0.04,
+      "fear": 0.82,
+      "neutral": 0.04
+    }
+  },
+  "metadata": {
+    "source": "model_server",
+    "input_size": "64x64 grayscale"
+  }
 }
 ```
 
@@ -1247,15 +1284,29 @@ POST /children/:childId/emotion-logs
   "log": {
     "id": "423e4567-e89b-12d3-a456-426614174000",
     "child_id": "323e4567-e89b-12d3-a456-426614174000",
-    "emotion_value": "HAPPY",
-    "trigger_source": "GAME",
+    "emotion_value": "SCARED",
+    "trigger_source": "WEBCAM",
     "duration_seconds": 60,
+    "confidence_score": 0.82,
+    "ai_emotion_label": "fear",
+    "ai_confidence": 0.82,
+    "ai_scores": {
+      "happy": 0.02,
+      "sad": 0.08,
+      "angry": 0.04,
+      "fear": 0.82,
+      "neutral": 0.04
+    },
+    "metadata": {
+      "source": "model_server",
+      "input_size": "64x64 grayscale"
+    },
     "created_at": "2026-05-21T07:14:22.170Z"
   }
 }
 ```
 
-- [400 Bad Request] - Possible `type` values: INVALID_JSON, INVALID_CHILD_ID, MISSING_EMOTION_VALUE, INVALID_EMOTION_VALUE, MISSING_TRIGGER_SOURCE, INVALID_TRIGGER_SOURCE, INVALID_DURATION.
+- [400 Bad Request] - Possible `type` values: INVALID_JSON, INVALID_CHILD_ID, MISSING_EMOTION_VALUE, INVALID_EMOTION_VALUE, EMOTION_AI_RESULT_MISMATCH, MISSING_TRIGGER_SOURCE, INVALID_TRIGGER_SOURCE, INVALID_DURATION, INVALID_CONFIDENCE_SCORE, INVALID_AI_RESULT, INVALID_AI_SCORES, INVALID_METADATA.
 - [401 Unauthorized] - Possible `type` values: MISSING_SESSION_TOKEN, INVALID_SESSION.
 - [403 Forbidden] - Possible `type` values: ACCOUNT_BANNED, CHILD_NOT_OWNED_BY_PARENT.
 - [404 Not Found] - Possible `type` values: CHILD_NOT_FOUND.
@@ -1277,7 +1328,7 @@ GET /children/:childId/emotion-logs
 
 ### Query parameters:
 
-- emotion (string, Optional): One of the supported emotion values.
+- emotion (string, Optional): One of the supported backend emotion values or external model labels.
 - trigger_source (string, Optional): One of the supported trigger sources.
 - from (string, Optional): ISO date lower bound.
 - to (string, Optional): ISO date upper bound.
@@ -1297,6 +1348,11 @@ GET /children/:childId/emotion-logs
       "emotion_value": "HAPPY",
       "trigger_source": "GAME",
       "duration_seconds": 60,
+      "confidence_score": null,
+      "ai_emotion_label": null,
+      "ai_confidence": null,
+      "ai_scores": null,
+      "metadata": null,
       "created_at": "2026-05-21T07:14:22.170Z"
     }
   ],
@@ -1358,7 +1414,7 @@ GET /children/:childId/dashboard
   "meltdown_alerts": [
     {
       "id": "423e4567-e89b-12d3-a456-426614174000",
-      "emotion_value": "STRESSED",
+      "emotion_value": "SCARED",
       "trigger_source": "WEBCAM",
       "duration_seconds": 300,
       "created_at": "2026-05-21T07:14:22.170Z"

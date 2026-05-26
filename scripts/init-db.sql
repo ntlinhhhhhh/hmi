@@ -99,12 +99,67 @@ CREATE TABLE IF NOT EXISTS "emotion_logs" (
   "emotion_value" text NOT NULL,
   "trigger_source" text NOT NULL,
   "duration_seconds" integer,
+  "confidence_score" real,
+  "ai_emotion_label" text,
+  "ai_confidence" real,
+  "ai_scores" jsonb,
+  "metadata" jsonb,
   "created_at" timestamp with time zone DEFAULT now() NOT NULL,
   CONSTRAINT "emotion_logs_child_id_fkey"
     FOREIGN KEY ("child_id") REFERENCES "child_profiles" ("id") ON DELETE cascade,
   CONSTRAINT "emotion_logs_duration_check"
-    CHECK ("duration_seconds" > 0 OR "duration_seconds" IS NULL)
+    CHECK ("duration_seconds" > 0 OR "duration_seconds" IS NULL),
+  CONSTRAINT "emotion_logs_confidence_score_check"
+    CHECK ("confidence_score" IS NULL OR ("confidence_score" >= 0 AND "confidence_score" <= 1)),
+  CONSTRAINT "emotion_logs_ai_confidence_check"
+    CHECK ("ai_confidence" IS NULL OR ("ai_confidence" >= 0 AND "ai_confidence" <= 1)),
+  CONSTRAINT "emotion_logs_ai_scores_object_check"
+    CHECK ("ai_scores" IS NULL OR jsonb_typeof("ai_scores") = 'object'),
+  CONSTRAINT "emotion_logs_metadata_object_check"
+    CHECK ("metadata" IS NULL OR jsonb_typeof("metadata") = 'object')
 );
+
+ALTER TABLE "emotion_logs"
+  ADD COLUMN IF NOT EXISTS "confidence_score" real,
+  ADD COLUMN IF NOT EXISTS "ai_emotion_label" text,
+  ADD COLUMN IF NOT EXISTS "ai_confidence" real,
+  ADD COLUMN IF NOT EXISTS "ai_scores" jsonb,
+  ADD COLUMN IF NOT EXISTS "metadata" jsonb;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'emotion_logs_confidence_score_check'
+  ) THEN
+    ALTER TABLE "emotion_logs"
+      ADD CONSTRAINT "emotion_logs_confidence_score_check"
+      CHECK ("confidence_score" IS NULL OR ("confidence_score" >= 0 AND "confidence_score" <= 1));
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'emotion_logs_ai_confidence_check'
+  ) THEN
+    ALTER TABLE "emotion_logs"
+      ADD CONSTRAINT "emotion_logs_ai_confidence_check"
+      CHECK ("ai_confidence" IS NULL OR ("ai_confidence" >= 0 AND "ai_confidence" <= 1));
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'emotion_logs_ai_scores_object_check'
+  ) THEN
+    ALTER TABLE "emotion_logs"
+      ADD CONSTRAINT "emotion_logs_ai_scores_object_check"
+      CHECK ("ai_scores" IS NULL OR jsonb_typeof("ai_scores") = 'object');
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'emotion_logs_metadata_object_check'
+  ) THEN
+    ALTER TABLE "emotion_logs"
+      ADD CONSTRAINT "emotion_logs_metadata_object_check"
+      CHECK ("metadata" IS NULL OR jsonb_typeof("metadata") = 'object');
+  END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS "idx_emotion_logs_child_id_created_at"
   ON "emotion_logs" USING btree (
@@ -188,13 +243,38 @@ CREATE TABLE IF NOT EXISTS "game" (
   "difficulty_level" integer DEFAULT 1 NOT NULL,
   "is_default" boolean DEFAULT false NOT NULL,
   "unlock_star_cost" integer DEFAULT 0 NOT NULL,
+  "prompt_asset_type" text,
+  "prompt_asset_url" text,
   CONSTRAINT "game_id_contents_fkey"
     FOREIGN KEY ("id") REFERENCES "contents" ("id") ON DELETE cascade,
   CONSTRAINT "game_difficulty_check"
     CHECK ("difficulty_level" >= 1 AND "difficulty_level" <= 3),
   CONSTRAINT "game_star_cost_check" CHECK ("unlock_star_cost" >= 0),
-  CONSTRAINT "game_time_limit_check" CHECK ("time_limit_seconds" > 0)
+  CONSTRAINT "game_time_limit_check" CHECK ("time_limit_seconds" > 0),
+  CONSTRAINT "game_prompt_asset_type_check"
+    CHECK (
+      "prompt_asset_type" IS NULL
+      OR "prompt_asset_type" = ANY (ARRAY['ICON'::text, 'IMAGE'::text, 'VIDEO'::text])
+    )
 );
+
+ALTER TABLE "game"
+  ADD COLUMN IF NOT EXISTS "prompt_asset_type" text,
+  ADD COLUMN IF NOT EXISTS "prompt_asset_url" text;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'game_prompt_asset_type_check'
+  ) THEN
+    ALTER TABLE "game"
+      ADD CONSTRAINT "game_prompt_asset_type_check"
+      CHECK (
+        "prompt_asset_type" IS NULL
+        OR "prompt_asset_type" = ANY (ARRAY['ICON'::text, 'IMAGE'::text, 'VIDEO'::text])
+      );
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS "unlock_content" (
   "id" uuid PRIMARY KEY NOT NULL,
@@ -219,6 +299,14 @@ CREATE TABLE IF NOT EXISTS "content_sessions" (
   "is_correct" boolean,
   "stars_earned" integer DEFAULT 0 NOT NULL,
   "ai_match_score" real,
+  "selected_emotion" text,
+  "idempotency_key" text,
+  "started_at" timestamp with time zone,
+  "completed_at" timestamp with time zone,
+  "ai_detected_emotion" text,
+  "ai_confidence" real,
+  "ai_scores" jsonb,
+  "metadata" jsonb,
   "status" text DEFAULT 'COMPLETED' NOT NULL,
   "created_at" timestamp with time zone DEFAULT now() NOT NULL,
   CONSTRAINT "content_sessions_child_id_fkey"
@@ -227,8 +315,51 @@ CREATE TABLE IF NOT EXISTS "content_sessions" (
     FOREIGN KEY ("unlock_content_id") REFERENCES "unlock_content" ("id") ON DELETE cascade,
   CONSTRAINT "content_sessions_status_check"
     CHECK ("status" = ANY (ARRAY['COMPLETED'::text, 'ABANDONED'::text])),
-  CONSTRAINT "content_sessions_stars_check" CHECK ("stars_earned" >= 0)
+  CONSTRAINT "content_sessions_stars_check" CHECK ("stars_earned" >= 0),
+  CONSTRAINT "content_sessions_ai_confidence_check"
+    CHECK ("ai_confidence" IS NULL OR ("ai_confidence" >= 0 AND "ai_confidence" <= 1)),
+  CONSTRAINT "content_sessions_ai_scores_object_check"
+    CHECK ("ai_scores" IS NULL OR jsonb_typeof("ai_scores") = 'object'),
+  CONSTRAINT "content_sessions_metadata_object_check"
+    CHECK ("metadata" IS NULL OR jsonb_typeof("metadata") = 'object')
 );
+
+ALTER TABLE "content_sessions"
+  ADD COLUMN IF NOT EXISTS "selected_emotion" text,
+  ADD COLUMN IF NOT EXISTS "idempotency_key" text,
+  ADD COLUMN IF NOT EXISTS "started_at" timestamp with time zone,
+  ADD COLUMN IF NOT EXISTS "completed_at" timestamp with time zone,
+  ADD COLUMN IF NOT EXISTS "ai_detected_emotion" text,
+  ADD COLUMN IF NOT EXISTS "ai_confidence" real,
+  ADD COLUMN IF NOT EXISTS "ai_scores" jsonb,
+  ADD COLUMN IF NOT EXISTS "metadata" jsonb;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'content_sessions_ai_confidence_check'
+  ) THEN
+    ALTER TABLE "content_sessions"
+      ADD CONSTRAINT "content_sessions_ai_confidence_check"
+      CHECK ("ai_confidence" IS NULL OR ("ai_confidence" >= 0 AND "ai_confidence" <= 1));
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'content_sessions_ai_scores_object_check'
+  ) THEN
+    ALTER TABLE "content_sessions"
+      ADD CONSTRAINT "content_sessions_ai_scores_object_check"
+      CHECK ("ai_scores" IS NULL OR jsonb_typeof("ai_scores") = 'object');
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'content_sessions_metadata_object_check'
+  ) THEN
+    ALTER TABLE "content_sessions"
+      ADD CONSTRAINT "content_sessions_metadata_object_check"
+      CHECK ("metadata" IS NULL OR jsonb_typeof("metadata") = 'object');
+  END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS "idx_content_sessions_child_id_created_at"
   ON "content_sessions" USING btree (
@@ -239,6 +370,10 @@ CREATE INDEX IF NOT EXISTS "idx_content_sessions_child_id_created_at"
 CREATE UNIQUE INDEX IF NOT EXISTS "content_sessions_one_reward_per_content_idx"
   ON "content_sessions" USING btree ("child_id", "unlock_content_id")
   WHERE "status" = 'COMPLETED' AND "stars_earned" > 0;
+
+CREATE UNIQUE INDEX IF NOT EXISTS "content_sessions_child_idempotency_key_idx"
+  ON "content_sessions" USING btree ("child_id", "idempotency_key")
+  WHERE "idempotency_key" IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS "pets" (
   "id" uuid PRIMARY KEY NOT NULL,

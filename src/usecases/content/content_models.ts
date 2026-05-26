@@ -1,5 +1,6 @@
 export type ContentType = "LECTURE" | "QUIZ" | "GAME";
 export type ContentStatus = "DRAFT" | "PUBLISHED";
+export type GamePromptAssetType = "ICON" | "IMAGE" | "VIDEO";
 
 export type ContentRow = {
   id: string;
@@ -33,6 +34,8 @@ export type ContentRow = {
     difficultyLevel: number;
     isDefault: boolean;
     unlockStarCost: number;
+    promptAssetType: string | null;
+    promptAssetUrl: string | null;
   } | null;
 };
 
@@ -74,6 +77,8 @@ export type ContentResult = {
     difficultyLevel: number;
     isDefault: boolean;
     unlockStarCost: number;
+    promptAssetType: GamePromptAssetType | null;
+    promptAssetUrl: string | null;
   } | null;
   isUnlocked: boolean | null;
   unlock: {
@@ -89,6 +94,11 @@ export function isContentType(value: string): value is ContentType {
 
 function isContentStatus(value: string): value is ContentStatus {
   return value === "DRAFT" || value === "PUBLISHED";
+}
+
+function normalizeGamePromptAssetType(value: string | null): GamePromptAssetType | null {
+  if (value === "ICON" || value === "IMAGE" || value === "VIDEO") return value;
+  return null;
 }
 
 export function getContentDifficultyLevel(content: ContentRow): number | null {
@@ -150,6 +160,8 @@ export function toContentResult(
           difficultyLevel: content.game.difficultyLevel,
           isDefault: content.game.isDefault,
           unlockStarCost: content.game.unlockStarCost,
+          promptAssetType: normalizeGamePromptAssetType(content.game.promptAssetType),
+          promptAssetUrl: content.game.promptAssetUrl,
         }
       : null,
     isUnlocked: state.unlock === undefined ? null : unlock !== null,

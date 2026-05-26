@@ -1,12 +1,13 @@
 import { db } from "../../db/client.ts";
 import { listEmotionLogs as listEmotionLogRows } from "../../db/queries/tracking_queries.ts";
+import { mapEmotionInputToInternal } from "../../domain/ai_inference.ts";
 import { AppError } from "../app_error.ts";
 import {
   normalizeUseCaseUuid,
   requireOwnedActiveParentChild,
   type ParentChildAccessErrorType,
 } from "../parent_child_access.ts";
-import { VALID_EMOTIONS, VALID_TRIGGER_SOURCES } from "./log_emotion.ts";
+import { VALID_TRIGGER_SOURCES as VALID_LOG_TRIGGER_SOURCES } from "./log_emotion.ts";
 
 export type ListEmotionLogsErrorType =
   | ParentChildAccessErrorType
@@ -34,6 +35,11 @@ export type EmotionLogListItem = {
   emotionValue: string;
   triggerSource: string;
   durationSeconds: number | null;
+  confidenceScore: number | null;
+  aiEmotionLabel: string | null;
+  aiConfidence: number | null;
+  aiScores: Record<string, number> | null;
+  metadata: Record<string, unknown> | null;
   createdAt: string;
 };
 
@@ -48,8 +54,8 @@ const MAX_LIMIT = 100;
 function normalizeEmotionValue(emotionValue: string | undefined): string | undefined {
   if (emotionValue === undefined || emotionValue.trim() === "") return undefined;
 
-  const normalizedValue = emotionValue.trim().toUpperCase();
-  if (!VALID_EMOTIONS.has(normalizedValue)) {
+  const normalizedValue = mapEmotionInputToInternal(emotionValue);
+  if (!normalizedValue) {
     throw new AppError<ListEmotionLogsErrorType>(
       "INVALID_EMOTION_VALUE",
       "Unsupported emotion value.",
@@ -64,7 +70,7 @@ function normalizeTriggerSource(triggerSource: string | undefined): string | und
   if (triggerSource === undefined || triggerSource.trim() === "") return undefined;
 
   const normalizedValue = triggerSource.trim().toUpperCase();
-  if (!VALID_TRIGGER_SOURCES.has(normalizedValue)) {
+  if (!VALID_LOG_TRIGGER_SOURCES.has(normalizedValue)) {
     throw new AppError<ListEmotionLogsErrorType>(
       "INVALID_TRIGGER_SOURCE",
       "Unsupported trigger source.",
@@ -149,6 +155,11 @@ export async function listEmotionLogs(input: ListEmotionLogsInput): Promise<List
         emotionValue: log.emotionValue,
         triggerSource: log.triggerSource,
         durationSeconds: log.durationSeconds ?? null,
+        confidenceScore: log.confidenceScore ?? null,
+        aiEmotionLabel: log.aiEmotionLabel ?? null,
+        aiConfidence: log.aiConfidence ?? null,
+        aiScores: log.aiScores ?? null,
+        metadata: log.metadata ?? null,
         createdAt: log.createdAt,
       })),
       nextCursor: hasNextPage ? (visibleRows.at(-1)?.createdAt ?? null) : null,

@@ -78,6 +78,8 @@ function formatContent(content: ContentResult) {
           difficulty_level: content.game.difficultyLevel,
           is_default: content.game.isDefault,
           unlock_star_cost: content.game.unlockStarCost,
+          prompt_asset_type: content.game.promptAssetType,
+          prompt_asset_url: content.game.promptAssetUrl,
         }
       : null,
   };

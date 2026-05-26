@@ -26,6 +26,12 @@ const protectedTrackingRouter = new Elysia()
         emotionValue: body.emotion_value,
         triggerSource: body.trigger_source,
         durationSeconds: body.duration_seconds,
+        confidenceScore: body.confidence_score,
+        aiEmotionLabel: body.ai_emotion_label,
+        aiConfidence: body.ai_confidence,
+        aiScores: body.ai_scores,
+        aiResult: body.ai_result,
+        metadata: body.metadata,
       });
 
       set.status = 201;
@@ -37,6 +43,11 @@ const protectedTrackingRouter = new Elysia()
           emotion_value: log.emotionValue,
           trigger_source: log.triggerSource,
           duration_seconds: log.durationSeconds,
+          confidence_score: log.confidenceScore,
+          ai_emotion_label: log.aiEmotionLabel,
+          ai_confidence: log.aiConfidence,
+          ai_scores: log.aiScores,
+          metadata: log.metadata,
           created_at: log.createdAt,
         },
       };
@@ -46,9 +57,15 @@ const protectedTrackingRouter = new Elysia()
         childId: t.String(),
       }),
       body: t.Object({
-        emotion_value: t.String(),
+        emotion_value: t.Optional(t.String()),
         trigger_source: t.String(),
         duration_seconds: t.Optional(t.Number()),
+        confidence_score: t.Optional(t.Number()),
+        ai_emotion_label: t.Optional(t.String()),
+        ai_confidence: t.Optional(t.Number()),
+        ai_scores: t.Optional(t.Unknown()),
+        ai_result: t.Optional(t.Unknown()),
+        metadata: t.Optional(t.Unknown()),
       }),
     },
   )
@@ -74,6 +91,11 @@ const protectedTrackingRouter = new Elysia()
           emotion_value: log.emotionValue,
           trigger_source: log.triggerSource,
           duration_seconds: log.durationSeconds,
+          confidence_score: log.confidenceScore,
+          ai_emotion_label: log.aiEmotionLabel,
+          ai_confidence: log.aiConfidence,
+          ai_scores: log.aiScores,
+          metadata: log.metadata,
           created_at: log.createdAt,
         })),
         next_cursor: result.nextCursor,

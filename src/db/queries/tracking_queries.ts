@@ -1,8 +1,11 @@
-import { eq, desc, sql, and, gte, lte, lt, type SQL } from "drizzle-orm";
+import { eq, desc, sql, and, gte, lte, lt, inArray, type SQL } from "drizzle-orm";
 import type { DbExecutor } from "../client";
 import { emotionLogs } from "../schema";
 import { randomUUID } from "crypto";
-import { NEGATIVE_EMOTION_ALERT_THRESHOLD_SECONDS } from "../../domain/emotion_policy.ts";
+import {
+  NEGATIVE_EMOTION_ALERT_THRESHOLD_SECONDS,
+  NEGATIVE_EMOTION_VALUES,
+} from "../../domain/emotion_policy.ts";
 
 export async function logEmotionEvent(
   db: DbExecutor,
@@ -97,8 +100,8 @@ export async function getMeltdownAlerts(db: DbExecutor, childId: string, days: n
     .where(
       and(
         eq(emotionLogs.childId, childId),
-        sql`emotion_value = ANY(ARRAY['SAD', 'ANGRY', 'STRESSED'])`,
-        sql`duration_seconds > ${NEGATIVE_EMOTION_ALERT_THRESHOLD_SECONDS}`,
+        inArray(emotionLogs.emotionValue, [...NEGATIVE_EMOTION_VALUES]),
+        sql`${emotionLogs.durationSeconds} > ${NEGATIVE_EMOTION_ALERT_THRESHOLD_SECONDS}`,
         gte(emotionLogs.createdAt, sql`NOW() - interval '${sql.raw(days.toString())} days'`),
       ),
     )

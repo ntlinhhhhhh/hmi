@@ -62,7 +62,7 @@ Current implemented API surface:
 
 1. Children do not authenticate directly. A parent signs in, selects a child profile, and the child-facing UI submits events under that parent session.
 2. Admin users use the same `users` table with `role = ADMIN`. Admin account creation is an internal provisioning flow unless an existing admin creates another admin.
-3. AI inference and computer vision run outside this backend. The frontend calls those AI services directly and sends only derived events, scores, durations, and outcomes to this backend. Raw webcam frame upload/storage is forbidden.
+3. AI inference, computer vision, and chatbot responses run outside this backend. The frontend calls those AI services directly and sends only derived events, scores, durations, model labels, and outcomes to this backend. Raw webcam frame upload/storage is forbidden.
 4. `game_sessions` in the SRS maps to the implemented `content_sessions` table.
 5. `unlock_content_id` on `content_sessions` means a child can only record progress for content that is already unlocked for that child.
 6. Password reset must avoid account enumeration. Even though the SRS says to report unknown email/phone, production behavior should return a generic response for reset requests.
@@ -80,7 +80,7 @@ Current implemented API surface:
 18. Reports should be human-friendly and readable, using summaries and interpretation rather than raw event dumps as the primary presentation.
 19. Admin analytics are aggregate only. Admins must not see child-specific identifiable logs, statistics, or reports.
 20. Quiz media, answer emotion list, and correct answer are admin-defined. The child UI renders answer emotions as emojis.
-21. Negative emotion alert/regulation threshold is exactly negative emotion duration greater than 60 seconds. No additional stress/meltdown threshold is defined.
+21. Negative emotion alert/regulation threshold is exactly negative emotion duration greater than 60 seconds. Negative values currently include `SAD`, `ANGRY`, `STRESSED`, and `SCARED`; the external model label `fear` maps to `SCARED`. No additional stress/meltdown threshold is defined.
 
 ## Role And Permission Model
 
@@ -141,12 +141,18 @@ Admin restrictions:
 
 ### External AI Services
 
-The frontend calls AI/computer-vision services directly. This backend does not call those models and does not know model topology, model versions, or inference service credentials.
+The frontend calls AI/computer-vision/chatbot services directly. This backend does not proxy those services and does not store inference credentials.
 
 Can access:
 
 - No direct backend API access by default.
 - The child-facing frontend can submit derived AI outcomes to backend endpoints under the authenticated parent session.
+
+Known external service contracts:
+
+- Chatbot service "Bạn thỏ": base URL `http://localhost:8080`, `GET /health`, `POST /chat`.
+- Emotion model service: base URL `http://localhost:9000`, `GET /health`, `GET /model/info`, `GET /model/download`, `POST /model/predict`.
+- Model labels are `happy`, `sad`, `angry`, `fear`, and `neutral`; backend normalizes these to `HAPPY`, `SAD`, `ANGRY`, `SCARED`, and `NEUTRAL`.
 
 ## Core Entities And Relationships
 
@@ -297,11 +303,13 @@ Required fields:
 - `difficulty_level`
 - `is_default`
 - `unlock_star_cost`
-
-Missing required fields:
-
-- **TODO** `detection_confidence_threshold`.
+- `prompt_asset_type`: `ICON`, `IMAGE`, or `VIDEO`, matching the current frontend plan for levels 1, 2, and 3.
+- `prompt_asset_url`
 - Fixed reward policy: successful AI game awards 3 stars on the first rewarded completion.
+
+Notes:
+
+- No global detection confidence threshold is currently defined by the AI service contract. Later session logic should store `confidence` and `all_scores`, but game success should be based on an explicit product rule rather than an implicit backend threshold.
 
 ### `unlock_content`
 
@@ -325,13 +333,18 @@ Key fields:
 - `is_correct`
 - `stars_earned`
 - `ai_match_score`
+- `selected_emotion`
+- `idempotency_key`
+- `started_at`
+- `completed_at`
+- `ai_detected_emotion`
+- `ai_confidence`
+- `ai_scores`
+- `metadata`
 - `status`: `COMPLETED`, `ABANDONED`
 
 Missing required fields:
 
-- **Inferred** `selected_emotion` for quiz attempts.
-- **Inferred** `idempotency_key` to prevent duplicate rewards from retrying clients.
-- **Inferred** `started_at` and `completed_at` for accurate usage time.
 - Unique rewarded completion per `(child_id, unlock_content_id)`: repeated completions must record `stars_earned = 0`.
 
 ### `emotion_logs`
@@ -343,18 +356,22 @@ Key fields:
 - `emotion_value`
 - `trigger_source`
 - `duration_seconds`
+- `confidence_score`
+- `ai_emotion_label`
+- `ai_confidence`
+- `ai_scores`
+- `metadata`
 - `created_at`
 
 Required values:
 
 - Emotion: `HAPPY`, `SAD`, `ANGRY`, `STRESSED`, `CALM`, `NEUTRAL`, `SCARED`, `SURPRISED`.
+- Accepted external model labels: `happy`, `sad`, `angry`, `fear`, `neutral`.
 - Trigger source: `AAC_BOARD`, `GAME`, `QUIZ`, `LECTURE`, `WEBCAM`, `SYSTEM`.
 
 Missing required fields:
 
-- **Inferred** `confidence_score`.
 - **Inferred** `session_id` or `content_session_id`.
-- **Inferred** `metadata` for rage-click count, face detection state, or frontend observation context.
 
 ### `pets`
 
@@ -630,10 +647,10 @@ The following entities are required for complete implementation:
 - Main flow:
   1. Client displays target emotion.
   2. Child imitates expression during time limit.
-  3. Frontend calls the external AI service and receives match score/confidence.
+  3. Frontend calls the external model service and receives predicted emotion, confidence, and all label scores.
   4. Client submits the derived AI game result.
-  5. Backend validates score range, configured detection confidence threshold, unlock state, and first-reward rule.
-  6. Backend records session and awards stars if the result passes the configured AI confidence threshold and this child has not already earned stars for the game.
+  5. Backend validates target/predicted emotion values, score ranges, unlock state, idempotency, and first-reward rule.
+  6. Backend records session and awards stars if the result satisfies the chosen game success rule and this child has not already earned stars for the game.
 - Alternative/error flows:
   - No face detected: client prompts child and may submit abandoned/failed attempt.
   - Negative emotion detected: trigger sensory regulation use cases.
@@ -641,7 +658,7 @@ The following entities are required for complete implementation:
 - Postconditions: AI attempt is recorded. Stars increase only for the first rewarded completion of the game.
 - Related API endpoints: `POST /children/:childId/content-sessions`, `POST /children/:childId/emotion-logs`, `POST /children/:childId/regulation-events`.
 - Priority: P1.
-- Current status: Partial. Database fields exist. Route/use case is missing; backend should store derived AI results only.
+- Current status: Partial. Database placeholders now exist for selected emotion, idempotency, AI labels/scores, and metadata. Route/use case is missing; backend should store derived AI results only.
 
 ### UC-ECON-01: Unlock Paid Content With Stars
 
@@ -688,7 +705,7 @@ The following entities are required for complete implementation:
 - Preconditions: Parent owns child. Client has consent and permission to observe the relevant source.
 - Main flow:
   1. Client receives or derives emotion/behavior from webcam, game, quiz, lecture, AAC board, or system event.
-  2. Client sends emotion, trigger source, duration, confidence, and metadata.
+  2. Client sends emotion, trigger source, duration, confidence, AI model label/scores, and metadata.
   3. Backend validates ownership and enums.
   4. Backend stores `emotion_logs`.
   5. Backend stores the event for dashboards/reports. AI-triggered regulation decisions remain outside this backend unless a later integration is approved.
@@ -699,7 +716,7 @@ The following entities are required for complete implementation:
 - Postconditions: Event is available for dashboard and reports.
 - Related API endpoints: `POST /children/:childId/emotion-logs`, `GET /children/:childId/emotion-logs`.
 - Priority: P0.
-- Current status: Partial. Create and filtered list routes exist. Extended confidence/metadata fields still require schema changes.
+- Current status: Implemented for create/list with optional AI label, confidence, all scores, and metadata. Raw frames remain forbidden.
 
 ### UC-REG-01: Automatic Sensory Regulation
 
@@ -917,13 +934,13 @@ Standard error body:
 
 ### Learning Content And Sessions
 
-| Method | Path                                            | Purpose                                                                        | Auth/Authz                   | Request                                                                                                                                                | Response                                                                                                                              | Error responses                                                                                                                                                          | Validation                                                                                                                                                                                                                                | Related use cases                                    | Status      |
-| ------ | ----------------------------------------------- | ------------------------------------------------------------------------------ | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- | ----------- |
-| `GET`  | `/children/:childId/contents`                   | List content available to a child, including locked/unlocked state.            | Authenticated owning parent. | Path: `childId`. Query: optional `type`, `difficulty_level`, `include_locked`.                                                                         | `200` with `contents[]`. Each item includes base content, type-specific payload, `is_unlocked`, `unlock_star_cost`, progress summary. | `400` invalid filters. `401` invalid session. `403` child not owned. `404` child not found.                                                                              | Type enum; difficulty 1-3; only published, non-deleted content for parents/children.                                                                                                                                                      | UC-CONTENT-01, UC-LEARN-01, UC-LEARN-02, UC-LEARN-03 | Implemented |
-| `GET`  | `/contents/:contentId`                          | Read published content detail.                                                 | Authenticated parent/admin.  | Path: `contentId`. Optional query `child_id` to include unlock state.                                                                                  | `200` with content detail.                                                                                                            | `400` invalid UUID. `401` invalid session. `403` not authorized. `404` not found.                                                                                        | Protected users can read published content; `child_id` requires parent ownership.                                                                                                                                                         | UC-CONTENT-01                                        | Implemented |
-| `POST` | `/children/:childId/content-sessions`           | Record lecture completion, quiz attempt, AI game result, or abandoned session. | Authenticated owning parent. | Body: `content_id`, optional `idempotency_key`, `duration_seconds`, `status`, optional `selected_emotion`, `is_correct`, `ai_match_score`, `metadata`. | `201` with `session`, `stars_earned`, `child_total_stars`.                                                                            | `400` invalid fields. `401` invalid session. `403` child not owned or content locked. `404` child/content not found. `409` duplicate idempotency key or reward conflict. | Content must be published, non-deleted, and unlocked; duration positive if present; status `COMPLETED` or `ABANDONED`; score 0-100. Fixed rewards: lecture 1, correct quiz 2, successful AI game 3; award at most once per child/content. | UC-LEARN-01, UC-LEARN-02, UC-LEARN-03, UC-REG-02     | Missing     |
-| `GET`  | `/children/:childId/content-sessions`           | List learning history.                                                         | Authenticated owning parent. | Query: optional `type`, `from`, `to`, `limit`, `cursor`.                                                                                               | `200` with paginated `sessions[]`.                                                                                                    | `400` invalid range/pagination. `401` invalid session. `403` child not owned. `404` child not found.                                                                     | Limit capped, for example <= 100. Date range valid.                                                                                                                                                                                       | UC-DASH-01                                           | Missing     |
-| `POST` | `/children/:childId/contents/:contentId/unlock` | Spend stars to unlock paid content.                                            | Authenticated owning parent. | Path: `childId`, `contentId`.                                                                                                                          | `201` with `unlock`, `child_total_stars`.                                                                                             | `400` invalid UUID. `401` invalid session. `403` child not owned. `404` child/content not found. `409` insufficient stars or already unlocked.                           | Content must be published; cost >= 0; atomic update must ensure `total_stars >= cost`. Star transaction ledger is still missing.                                                                                                          | UC-ECON-01                                           | Partial     |
+| Method | Path                                            | Purpose                                                                        | Auth/Authz                   | Request                                                                                                                                                                                                     | Response                                                                                                                              | Error responses                                                                                                                                                          | Validation                                                                                                                                                                                                                                                 | Related use cases                                    | Status      |
+| ------ | ----------------------------------------------- | ------------------------------------------------------------------------------ | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- | ----------- |
+| `GET`  | `/children/:childId/contents`                   | List content available to a child, including locked/unlocked state.            | Authenticated owning parent. | Path: `childId`. Query: optional `type`, `difficulty_level`, `include_locked`.                                                                                                                              | `200` with `contents[]`. Each item includes base content, type-specific payload, `is_unlocked`, `unlock_star_cost`, progress summary. | `400` invalid filters. `401` invalid session. `403` child not owned. `404` child not found.                                                                              | Type enum; difficulty 1-3; only published, non-deleted content for parents/children.                                                                                                                                                                       | UC-CONTENT-01, UC-LEARN-01, UC-LEARN-02, UC-LEARN-03 | Implemented |
+| `GET`  | `/contents/:contentId`                          | Read published content detail.                                                 | Authenticated parent/admin.  | Path: `contentId`. Optional query `child_id` to include unlock state.                                                                                                                                       | `200` with content detail.                                                                                                            | `400` invalid UUID. `401` invalid session. `403` not authorized. `404` not found.                                                                                        | Protected users can read published content; `child_id` requires parent ownership.                                                                                                                                                                          | UC-CONTENT-01                                        | Implemented |
+| `POST` | `/children/:childId/content-sessions`           | Record lecture completion, quiz attempt, AI game result, or abandoned session. | Authenticated owning parent. | Body: `content_id`, optional `idempotency_key`, `duration_seconds`, `status`, optional `selected_emotion`, `is_correct`, `ai_match_score`, `ai_detected_emotion`, `ai_confidence`, `ai_scores`, `metadata`. | `201` with `session`, `stars_earned`, `child_total_stars`.                                                                            | `400` invalid fields. `401` invalid session. `403` child not owned or content locked. `404` child/content not found. `409` duplicate idempotency key or reward conflict. | Content must be published, non-deleted, and unlocked; duration positive if present; status `COMPLETED` or `ABANDONED`; AI confidence/scores are 0-1. Fixed rewards: lecture 1, correct quiz 2, successful AI game 3; award at most once per child/content. | UC-LEARN-01, UC-LEARN-02, UC-LEARN-03, UC-REG-02     | Missing     |
+| `GET`  | `/children/:childId/content-sessions`           | List learning history.                                                         | Authenticated owning parent. | Query: optional `type`, `from`, `to`, `limit`, `cursor`.                                                                                                                                                    | `200` with paginated `sessions[]`.                                                                                                    | `400` invalid range/pagination. `401` invalid session. `403` child not owned. `404` child not found.                                                                     | Limit capped, for example <= 100. Date range valid.                                                                                                                                                                                                        | UC-DASH-01                                           | Missing     |
+| `POST` | `/children/:childId/contents/:contentId/unlock` | Spend stars to unlock paid content.                                            | Authenticated owning parent. | Path: `childId`, `contentId`.                                                                                                                                                                               | `201` with `unlock`, `child_total_stars`.                                                                                             | `400` invalid UUID. `401` invalid session. `403` child not owned. `404` child/content not found. `409` insufficient stars or already unlocked.                           | Content must be published; cost >= 0; atomic update must ensure `total_stars >= cost`. Star transaction ledger is still missing.                                                                                                                           | UC-ECON-01                                           | Partial     |
 
 ### Pets And Store
 
@@ -936,15 +953,15 @@ Standard error body:
 
 ### Tracking, Regulation, Alerts, Reports
 
-| Method | Path                                     | Purpose                                              | Auth/Authz                                           | Request                                                                                                                 | Response                                                       | Error responses                                                                                                     | Validation                                                                                                                                                            | Related use cases                   | Status                        |
-| ------ | ---------------------------------------- | ---------------------------------------------------- | ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- | ----------------------------- |
-| `POST` | `/children/:childId/emotion-logs`        | Record derived emotion/behavior event.               | Authenticated owning parent.                         | Body: `emotion_value`, `trigger_source`, optional `duration_seconds`, inferred optional `confidence_score`, `metadata`. | `201` with `log`.                                              | `400` invalid UUID/emotion/source/duration. `401` invalid session. `403` child not owned. `404` child not found.    | Emotion/source enums; duration positive integer; confidence convention is TODO. Backend does not call AI services and must not accept raw webcam frames.              | UC-TRACK-01, UC-REG-01, UC-NOTIF-01 | Implemented basic create only |
-| `GET`  | `/children/:childId/emotion-logs`        | List child emotion history.                          | Authenticated owning parent.                         | Query: optional `from`, `to`, `emotion`, `trigger_source`, `limit`, `cursor`.                                           | `200` with paginated `logs[]` and `next_cursor`.               | `400` invalid filters. `401` invalid session. `403` child not owned. `404` child not found.                         | Limit cap; valid date range; enum filters.                                                                                                                            | UC-TRACK-01, UC-DASH-01             | Implemented basic list        |
-| `POST` | `/children/:childId/regulation-events`   | Record AI-triggered sensory regulation intervention. | Authenticated owning parent via child-facing client. | Body: `trigger_emotion_log_id`, `action`, `started_at`, optional `ended_at`, `duration_seconds`, `metadata`.            | `201` with `regulation_event`.                                 | `400` invalid body. `401` invalid session. `403` child not owned. `404` child/log not found.                        | Action enum: `REDUCE_BRIGHTNESS`, `PAUSE_ANIMATION`, `PLAY_CALMING_AUDIO`, `VOICE_PROMPT`, `TIMEOUT`, `SHOW_STORY`, `RESUME`. Parent manual trigger is not supported. | UC-REG-01, UC-REG-02                | Missing, inferred             |
-| `GET`  | `/children/:childId/regulation-events`   | List regulation history.                             | Authenticated owning parent.                         | Query: optional `from`, `to`, `action`, `limit`, `cursor`.                                                              | `200` with paginated `regulation_events[]`.                    | `400` invalid filters. `401` invalid session. `403` child not owned. `404` child not found.                         | Limit cap and date range.                                                                                                                                             | UC-REG-01, UC-REG-02, UC-DASH-01    | Missing, inferred             |
-| `GET`  | `/children/:childId/alerts`              | List parent alerts for a child.                      | Authenticated owning parent.                         | Query: optional `from`, `to`, `status`, `limit`, `cursor`.                                                              | `200` with `alerts[]`.                                         | `400` invalid filters. `401` invalid session. `403` child not owned. `404` child not found.                         | Alerts are generated only when a negative emotion duration is greater than 60 seconds.                                                                                | UC-NOTIF-01, UC-DASH-01             | Missing, inferred             |
-| `GET`  | `/children/:childId/dashboard`           | Return child learning and emotion dashboard.         | Authenticated owning parent.                         | Query: `days` optional integer 1-90.                                                                                    | `200` with `child`, `learning`, `emotions`, `meltdown_alerts`. | `400` invalid UUID/days. `401` invalid session. `403` child not owned. `404` parent/child not found.                | Days default 7; max 90.                                                                                                                                               | UC-DASH-01                          | Implemented basic version     |
-| `GET`  | `/children/:childId/reports/summary.pdf` | Export human-friendly PDF report.                    | Authenticated owning parent.                         | Query: optional `from`, `to`, `days`, `include_emotions`, `include_learning`.                                           | `200` `application/pdf`.                                       | `400` invalid range. `401` invalid session. `403` child not owned. `404` child not found. `500` generation failure. | Date range bounded; default report range defined, for example 30 days. Prefer readable summaries/charts over raw logs. Audit export event.                            | UC-DASH-02                          | Missing                       |
+| Method | Path                                     | Purpose                                              | Auth/Authz                                           | Request                                                                                                                                                                        | Response                                                       | Error responses                                                                                                                        | Validation                                                                                                                                                                | Related use cases                   | Status                    |
+| ------ | ---------------------------------------- | ---------------------------------------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- | ------------------------- |
+| `POST` | `/children/:childId/emotion-logs`        | Record derived emotion/behavior event.               | Authenticated owning parent.                         | Body: `emotion_value` or `ai_result.emotion`, `trigger_source`, optional `duration_seconds`, `confidence_score`, `ai_emotion_label`, `ai_confidence`, `ai_scores`, `metadata`. | `201` with `log`.                                              | `400` invalid UUID/emotion/source/duration/confidence/AI payload. `401` invalid session. `403` child not owned. `404` child not found. | Accepts backend emotion enum plus model labels `happy`, `sad`, `angry`, `fear`, `neutral`; duration positive integer; confidence/scores 0-1; raw webcam frames forbidden. | UC-TRACK-01, UC-REG-01, UC-NOTIF-01 | Implemented               |
+| `GET`  | `/children/:childId/emotion-logs`        | List child emotion history.                          | Authenticated owning parent.                         | Query: optional `from`, `to`, `emotion`, `trigger_source`, `limit`, `cursor`.                                                                                                  | `200` with paginated `logs[]` and `next_cursor`.               | `400` invalid filters. `401` invalid session. `403` child not owned. `404` child not found.                                            | Limit cap; valid date range; enum filters.                                                                                                                                | UC-TRACK-01, UC-DASH-01             | Implemented basic list    |
+| `POST` | `/children/:childId/regulation-events`   | Record AI-triggered sensory regulation intervention. | Authenticated owning parent via child-facing client. | Body: `trigger_emotion_log_id`, `action`, `started_at`, optional `ended_at`, `duration_seconds`, `metadata`.                                                                   | `201` with `regulation_event`.                                 | `400` invalid body. `401` invalid session. `403` child not owned. `404` child/log not found.                                           | Action enum: `REDUCE_BRIGHTNESS`, `PAUSE_ANIMATION`, `PLAY_CALMING_AUDIO`, `VOICE_PROMPT`, `TIMEOUT`, `SHOW_STORY`, `RESUME`. Parent manual trigger is not supported.     | UC-REG-01, UC-REG-02                | Missing, inferred         |
+| `GET`  | `/children/:childId/regulation-events`   | List regulation history.                             | Authenticated owning parent.                         | Query: optional `from`, `to`, `action`, `limit`, `cursor`.                                                                                                                     | `200` with paginated `regulation_events[]`.                    | `400` invalid filters. `401` invalid session. `403` child not owned. `404` child not found.                                            | Limit cap and date range.                                                                                                                                                 | UC-REG-01, UC-REG-02, UC-DASH-01    | Missing, inferred         |
+| `GET`  | `/children/:childId/alerts`              | List parent alerts for a child.                      | Authenticated owning parent.                         | Query: optional `from`, `to`, `status`, `limit`, `cursor`.                                                                                                                     | `200` with `alerts[]`.                                         | `400` invalid filters. `401` invalid session. `403` child not owned. `404` child not found.                                            | Alerts are generated only when a negative emotion duration is greater than 60 seconds.                                                                                    | UC-NOTIF-01, UC-DASH-01             | Missing, inferred         |
+| `GET`  | `/children/:childId/dashboard`           | Return child learning and emotion dashboard.         | Authenticated owning parent.                         | Query: `days` optional integer 1-90.                                                                                                                                           | `200` with `child`, `learning`, `emotions`, `meltdown_alerts`. | `400` invalid UUID/days. `401` invalid session. `403` child not owned. `404` parent/child not found.                                   | Days default 7; max 90.                                                                                                                                                   | UC-DASH-01                          | Implemented basic version |
+| `GET`  | `/children/:childId/reports/summary.pdf` | Export human-friendly PDF report.                    | Authenticated owning parent.                         | Query: optional `from`, `to`, `days`, `include_emotions`, `include_learning`.                                                                                                  | `200` `application/pdf`.                                       | `400` invalid range. `401` invalid session. `403` child not owned. `404` child not found. `500` generation failure.                    | Date range bounded; default report range defined, for example 30 days. Prefer readable summaries/charts over raw logs. Audit export event.                                | UC-DASH-02                          | Missing                   |
 
 ### Admin
 
@@ -974,8 +991,8 @@ Standard error body:
 2. Content session completion route for lectures, quizzes, games, and abandoned sessions.
 3. Content session idempotency use case around fixed star rewards.
 4. Immutable star ledger for debugging balance changes.
-5. AI game scoring contract and detection confidence threshold.
-6. Final emotion catalog.
+5. AI game success rule for content-session completion.
+6. Final emotion catalog for quiz/report UX beyond the external model labels.
 7. Regulation event model and routes.
 8. Alert model, alert cooldown, and notification status tracking.
 9. PDF report export.
@@ -1007,11 +1024,12 @@ Resolved:
 12. Raw webcam frame upload/storage is forbidden.
 13. Stress/meltdown detection has no threshold beyond negative emotion duration greater than 60 seconds.
 14. Admin defines quiz media, answer emotion list, and correct answer; the child sees answer emotions as emojis.
+15. The current external emotion model labels are `happy`, `sad`, `angry`, `fear`, and `neutral`; `fear` maps to backend `SCARED`.
 
 Open questions for the undecided SRS points:
 
-1. What AI game detection confidence threshold defines an accepted successful detection?
-2. What is the canonical emotion catalog for quizzes, emotion logs, AI game targets, emoji rendering, and reports?
+1. What exact product rule makes an AI game attempt successful when the model returns predicted label, confidence, and all label scores?
+2. What is the canonical emotion catalog for quizzes, AI game targets, emoji rendering, and reports beyond the five model labels?
 
 ## Implementation Notes For Future Developers
 
@@ -1032,7 +1050,7 @@ Open questions for the undecided SRS points:
 7. Do not trust client-submitted `is_correct` for quizzes. Backend must compare selected answer to stored correct answer/options.
 8. Define a strict `preferences` TypeScript type. Avoid loose `any` in preference metadata.
 9. Validate admin-defined quiz `answer_emotions` before building the quiz API. `correct_emotion` must be present in `answer_emotions`; final allowed values depend on the TODO emotion catalog.
-10. Treat AI scores as frontend-submitted derived outcomes. This backend does not call AI services directly, so reward endpoints need strict score range validation, idempotency, and first-reward enforcement.
+10. Treat AI label/confidence/scores as frontend-submitted derived outcomes. This backend does not call AI services directly, so reward endpoints need strict model-result validation, idempotency, and first-reward enforcement.
 11. Store derived webcam events, not raw frames. Raw webcam frame upload/storage is forbidden even if other media upload is introduced.
 12. Use cursor pagination for logs, sessions, users, content, and admin analytics. Offset pagination is acceptable only for small admin lists.
 13. Keep the existing error envelope from `docs/API.md` for all endpoints.

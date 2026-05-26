@@ -62,7 +62,7 @@ API hiện đã có:
 
 1. Trẻ không đăng nhập trực tiếp. Phụ huynh đăng nhập, chọn hồ sơ trẻ, và giao diện dành cho trẻ gửi sự kiện dưới phiên đăng nhập của phụ huynh.
 2. Admin dùng chung bảng `users` với `role = ADMIN`. Tạo tài khoản admin là luồng nội bộ, trừ khi sau này có chức năng admin hiện hữu tạo admin mới.
-3. AI inference và Computer Vision chạy bên ngoài backend này. Frontend gọi trực tiếp các AI service đó và chỉ gửi sự kiện, điểm số, thời lượng và kết quả đã suy ra về backend. Cấm upload/lưu raw webcam frame.
+3. AI inference, Computer Vision và chatbot chạy bên ngoài backend này. Frontend gọi trực tiếp các AI service đó và chỉ gửi sự kiện, điểm số, thời lượng, nhãn model và kết quả đã suy ra về backend. Cấm upload/lưu raw webcam frame.
 4. `game_sessions` trong SRS được ánh xạ thành bảng `content_sessions` hiện có.
 5. `unlock_content_id` trong `content_sessions` nghĩa là trẻ chỉ được ghi nhận tiến độ cho nội dung đã mở khóa.
 6. Reset mật khẩu phải chống dò tài khoản. Dù SRS nói báo lỗi khi email/số điện thoại không tồn tại, hành vi production nên trả về thông báo chung cho yêu cầu reset.
@@ -80,7 +80,7 @@ API hiện đã có:
 18. Báo cáo phải thân thiện, dễ đọc, ưu tiên summary/diễn giải thay vì dump raw event.
 19. Admin analytics chỉ là aggregate. Admin không được xem log, thống kê hoặc report định danh cấp trẻ.
 20. Media quiz, danh sách emotion đáp án và đáp án đúng do admin định nghĩa. UI của trẻ render emotion đáp án dưới dạng emoji.
-21. Ngưỡng alert/regulation cho cảm xúc tiêu cực là đúng một rule: duration cảm xúc tiêu cực lớn hơn 60 giây. Không có ngưỡng stress/meltdown nào khác.
+21. Ngưỡng alert/regulation cho cảm xúc tiêu cực là đúng một rule: duration cảm xúc tiêu cực lớn hơn 60 giây. Các giá trị tiêu cực hiện gồm `SAD`, `ANGRY`, `STRESSED`, `SCARED`; nhãn model bên ngoài `fear` được map về `SCARED`. Không có ngưỡng stress/meltdown nào khác.
 
 ## Mô hình Vai trò và Quyền hạn
 
@@ -141,12 +141,18 @@ Ràng buộc admin:
 
 ### AI Service bên ngoài
 
-Frontend gọi trực tiếp AI/computer-vision service. Backend này không gọi model, không biết topology/model version, và không giữ credential inference service.
+Frontend gọi trực tiếp AI/computer-vision/chatbot service. Backend này không proxy các service đó và không giữ credential inference service.
 
 Được phép:
 
 - Mặc định không truy cập trực tiếp API backend.
 - Frontend child-facing có thể gửi kết quả AI đã suy ra vào backend dưới phiên phụ huynh đã authenticated.
+
+Contract service bên ngoài đã biết:
+
+- Chatbot service "Bạn thỏ": base URL `http://localhost:8080`, `GET /health`, `POST /chat`.
+- Emotion model service: base URL `http://localhost:9000`, `GET /health`, `GET /model/info`, `GET /model/download`, `POST /model/predict`.
+- Nhãn model là `happy`, `sad`, `angry`, `fear`, `neutral`; backend normalize thành `HAPPY`, `SAD`, `ANGRY`, `SCARED`, `NEUTRAL`.
 
 ## Thực thể Cốt lõi và Quan hệ
 
@@ -297,11 +303,13 @@ Trường cần có:
 - `difficulty_level`
 - `is_default`
 - `unlock_star_cost`
-
-Trường còn thiếu:
-
-- **TODO** `detection_confidence_threshold`.
+- `prompt_asset_type`: `ICON`, `IMAGE`, hoặc `VIDEO`, khớp hướng frontend hiện tại level 1 dùng icon, level 2 dùng ảnh, level 3 dùng video.
+- `prompt_asset_url`
 - Chính sách reward cố định: AI game thành công được 3 sao ở lần hoàn thành được thưởng đầu tiên.
+
+Ghi chú:
+
+- Contract AI hiện không định nghĩa ngưỡng confidence chung. Logic session sau này nên lưu `confidence` và `all_scores`, nhưng game success phải dựa trên rule sản phẩm rõ ràng thay vì ngưỡng backend ngầm định.
 
 ### `unlock_content`
 
@@ -325,13 +333,18 @@ Trường chính:
 - `is_correct`
 - `stars_earned`
 - `ai_match_score`
+- `selected_emotion`
+- `idempotency_key`
+- `started_at`
+- `completed_at`
+- `ai_detected_emotion`
+- `ai_confidence`
+- `ai_scores`
+- `metadata`
 - `status`: `COMPLETED`, `ABANDONED`
 
 Trường bắt buộc còn thiếu:
 
-- **Suy luận** `selected_emotion` cho lượt quiz.
-- **Suy luận** `idempotency_key` để tránh thưởng trùng khi client retry.
-- **Suy luận** `started_at` và `completed_at` để tính thời gian sử dụng chính xác.
 - Unique rewarded completion theo `(child_id, unlock_content_id)`: hoàn thành lặp lại phải ghi `stars_earned = 0`.
 
 ### `emotion_logs`
@@ -343,18 +356,22 @@ Trường chính:
 - `emotion_value`
 - `trigger_source`
 - `duration_seconds`
+- `confidence_score`
+- `ai_emotion_label`
+- `ai_confidence`
+- `ai_scores`
+- `metadata`
 - `created_at`
 
 Giá trị yêu cầu:
 
 - Emotion: `HAPPY`, `SAD`, `ANGRY`, `STRESSED`, `CALM`, `NEUTRAL`, `SCARED`, `SURPRISED`.
+- Nhãn model bên ngoài được chấp nhận: `happy`, `sad`, `angry`, `fear`, `neutral`.
 - Trigger source: `AAC_BOARD`, `GAME`, `QUIZ`, `LECTURE`, `WEBCAM`, `SYSTEM`.
 
 Trường bắt buộc còn thiếu:
 
-- **Suy luận** `confidence_score`.
 - **Suy luận** `session_id` hoặc `content_session_id`.
-- **Suy luận** `metadata` cho rage-click count, trạng thái nhận diện khuôn mặt hoặc ngữ cảnh quan sát của frontend.
 
 ### `pets`
 
@@ -630,10 +647,10 @@ Các thực thể sau cần có để triển khai đầy đủ:
 - Main flow:
   1. Client hiển thị cảm xúc mục tiêu.
   2. Trẻ bắt chước biểu cảm trong giới hạn thời gian.
-  3. Frontend gọi AI service bên ngoài và nhận match score/confidence.
+  3. Frontend gọi model service bên ngoài và nhận emotion dự đoán, confidence và điểm của từng nhãn.
   4. Client gửi kết quả AI game đã suy ra.
-  5. Backend validate score range, detection confidence threshold đã cấu hình, unlock state và first-reward rule.
-  6. Backend ghi session và thưởng sao nếu kết quả đạt AI confidence threshold đã cấu hình và trẻ chưa từng nhận sao cho game đó.
+  5. Backend validate target/predicted emotion, score range, unlock state, idempotency và first-reward rule.
+  6. Backend ghi session và thưởng sao nếu kết quả đạt rule game success đã chọn và trẻ chưa từng nhận sao cho game đó.
 - Alternative/error flows:
   - Không nhận diện được mặt: client nhắc trẻ và có thể gửi abandoned/failed attempt.
   - Phát hiện cảm xúc tiêu cực: trigger sensory regulation use cases.
@@ -641,7 +658,7 @@ Các thực thể sau cần có để triển khai đầy đủ:
 - Postconditions: Attempt AI được ghi nhận. Sao chỉ tăng ở lần hoàn thành được thưởng đầu tiên của game.
 - Related API endpoints: `POST /children/:childId/content-sessions`, `POST /children/:childId/emotion-logs`, `POST /children/:childId/regulation-events`.
 - Priority: P1.
-- Current status: Một phần. Có field DB. Thiếu route/use case; backend chỉ nên lưu kết quả AI đã suy ra.
+- Current status: Một phần. Đã có placeholder DB cho selected emotion, idempotency, AI label/scores và metadata. Thiếu route/use case; backend chỉ nên lưu kết quả AI đã suy ra.
 
 ### UC-ECON-01: Mở khóa nội dung trả phí bằng sao
 
@@ -688,7 +705,7 @@ Các thực thể sau cần có để triển khai đầy đủ:
 - Preconditions: Phụ huynh sở hữu child. Client có consent và permission quan sát nguồn liên quan.
 - Main flow:
   1. Client nhận hoặc suy ra cảm xúc/hành vi từ webcam, game, quiz, lecture, AAC board hoặc system event.
-  2. Client gửi emotion, trigger source, duration, confidence và metadata.
+  2. Client gửi emotion, trigger source, duration, confidence, nhãn/điểm model AI và metadata.
   3. Backend validate ownership và enum.
   4. Backend lưu `emotion_logs`.
   5. Backend lưu event cho dashboard/report. Quyết định regulation do AI trigger vẫn nằm ngoài backend này trừ khi sau này duyệt tích hợp.
@@ -699,7 +716,7 @@ Các thực thể sau cần có để triển khai đầy đủ:
 - Postconditions: Event khả dụng cho dashboard và report.
 - Related API endpoints: `POST /children/:childId/emotion-logs`, `GET /children/:childId/emotion-logs`.
 - Priority: P0.
-- Current status: Một phần. Đã có create route và list route có filter. Các field confidence/metadata mở rộng vẫn cần thay đổi schema.
+- Current status: Đã triển khai create/list với optional AI label, confidence, all scores và metadata. Raw frame vẫn bị cấm.
 
 ### UC-REG-01: Điều hòa cảm xúc tự động
 
@@ -917,13 +934,13 @@ Error body chuẩn:
 
 ### Nội dung học tập và Sessions
 
-| Method | Path                                            | Mục đích                                                                          | Auth/Authz                  | Request                                                                                                                                                | Response                                                                                                                  | Error responses                                                                                                                                                                 | Validation                                                                                                                                                                                                                                    | Use case liên quan                                   | Trạng thái    |
-| ------ | ----------------------------------------------- | --------------------------------------------------------------------------------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- | ------------- |
-| `GET`  | `/children/:childId/contents`                   | Liệt kê content khả dụng cho child, gồm trạng thái locked/unlocked.               | Parent sở hữu child.        | Path: `childId`. Query: optional `type`, `difficulty_level`, `include_locked`.                                                                         | `200` với `contents[]`. Mỗi item có base content, payload theo loại, `is_unlocked`, `unlock_star_cost`, progress summary. | `400` filter không hợp lệ. `401` invalid session. `403` không sở hữu child. `404` child not found.                                                                              | Type enum; difficulty 1-3; parent/child chỉ thấy content published và chưa bị soft-delete.                                                                                                                                                    | UC-CONTENT-01, UC-LEARN-01, UC-LEARN-02, UC-LEARN-03 | Đã triển khai |
-| `GET`  | `/contents/:contentId`                          | Đọc chi tiết content published.                                                   | Parent/admin authenticated. | Path: `contentId`. Optional query `child_id` để include unlock state.                                                                                  | `200` với content detail.                                                                                                 | `400` UUID không hợp lệ. `401` invalid session. `403` not authorized. `404` not found.                                                                                          | User protected đọc được content published; `child_id` yêu cầu ownership của parent.                                                                                                                                                           | UC-CONTENT-01                                        | Đã triển khai |
-| `POST` | `/children/:childId/content-sessions`           | Ghi nhận hoàn thành lecture, quiz attempt, AI game result hoặc abandoned session. | Parent sở hữu child.        | Body: `content_id`, optional `idempotency_key`, `duration_seconds`, `status`, optional `selected_emotion`, `is_correct`, `ai_match_score`, `metadata`. | `201` với `session`, `stars_earned`, `child_total_stars`.                                                                 | `400` field không hợp lệ. `401` invalid session. `403` không sở hữu child hoặc content locked. `404` child/content not found. `409` idempotency key trùng hoặc reward conflict. | Content phải published, chưa bị soft-delete và đã unlock; duration dương nếu có; status `COMPLETED` hoặc `ABANDONED`; score 0-100. Reward cố định: lecture 1, quiz đúng 2, AI game thành công 3; chỉ thưởng tối đa một lần mỗi child/content. | UC-LEARN-01, UC-LEARN-02, UC-LEARN-03, UC-REG-02     | Thiếu         |
-| `GET`  | `/children/:childId/content-sessions`           | Liệt kê lịch sử học tập.                                                          | Parent sở hữu child.        | Query: optional `type`, `from`, `to`, `limit`, `cursor`.                                                                                               | `200` với paginated `sessions[]`.                                                                                         | `400` range/pagination không hợp lệ. `401` invalid session. `403` không sở hữu child. `404` child not found.                                                                    | Limit có trần, ví dụ <= 100. Date range hợp lệ.                                                                                                                                                                                               | UC-DASH-01                                           | Thiếu         |
-| `POST` | `/children/:childId/contents/:contentId/unlock` | Dùng sao để mở khóa content trả phí.                                              | Parent sở hữu child.        | Path: `childId`, `contentId`.                                                                                                                          | `201` với `unlock`, `child_total_stars`.                                                                                  | `400` UUID không hợp lệ. `401` invalid session. `403` không sở hữu child. `404` child/content not found. `409` không đủ sao hoặc đã unlock.                                     | Content phải published; cost >= 0; atomic update phải bảo đảm `total_stars >= cost`. Star transaction ledger vẫn thiếu.                                                                                                                       | UC-ECON-01                                           | Một phần      |
+| Method | Path                                            | Mục đích                                                                          | Auth/Authz                  | Request                                                                                                                                                                                                     | Response                                                                                                                  | Error responses                                                                                                                                                                 | Validation                                                                                                                                                                                                                                                           | Use case liên quan                                   | Trạng thái    |
+| ------ | ----------------------------------------------- | --------------------------------------------------------------------------------- | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- | ------------- |
+| `GET`  | `/children/:childId/contents`                   | Liệt kê content khả dụng cho child, gồm trạng thái locked/unlocked.               | Parent sở hữu child.        | Path: `childId`. Query: optional `type`, `difficulty_level`, `include_locked`.                                                                                                                              | `200` với `contents[]`. Mỗi item có base content, payload theo loại, `is_unlocked`, `unlock_star_cost`, progress summary. | `400` filter không hợp lệ. `401` invalid session. `403` không sở hữu child. `404` child not found.                                                                              | Type enum; difficulty 1-3; parent/child chỉ thấy content published và chưa bị soft-delete.                                                                                                                                                                           | UC-CONTENT-01, UC-LEARN-01, UC-LEARN-02, UC-LEARN-03 | Đã triển khai |
+| `GET`  | `/contents/:contentId`                          | Đọc chi tiết content published.                                                   | Parent/admin authenticated. | Path: `contentId`. Optional query `child_id` để include unlock state.                                                                                                                                       | `200` với content detail.                                                                                                 | `400` UUID không hợp lệ. `401` invalid session. `403` not authorized. `404` not found.                                                                                          | User protected đọc được content published; `child_id` yêu cầu ownership của parent.                                                                                                                                                                                  | UC-CONTENT-01                                        | Đã triển khai |
+| `POST` | `/children/:childId/content-sessions`           | Ghi nhận hoàn thành lecture, quiz attempt, AI game result hoặc abandoned session. | Parent sở hữu child.        | Body: `content_id`, optional `idempotency_key`, `duration_seconds`, `status`, optional `selected_emotion`, `is_correct`, `ai_match_score`, `ai_detected_emotion`, `ai_confidence`, `ai_scores`, `metadata`. | `201` với `session`, `stars_earned`, `child_total_stars`.                                                                 | `400` field không hợp lệ. `401` invalid session. `403` không sở hữu child hoặc content locked. `404` child/content not found. `409` idempotency key trùng hoặc reward conflict. | Content phải published, chưa bị soft-delete và đã unlock; duration dương nếu có; status `COMPLETED` hoặc `ABANDONED`; AI confidence/scores nằm trong 0-1. Reward cố định: lecture 1, quiz đúng 2, AI game thành công 3; chỉ thưởng tối đa một lần mỗi child/content. | UC-LEARN-01, UC-LEARN-02, UC-LEARN-03, UC-REG-02     | Thiếu         |
+| `GET`  | `/children/:childId/content-sessions`           | Liệt kê lịch sử học tập.                                                          | Parent sở hữu child.        | Query: optional `type`, `from`, `to`, `limit`, `cursor`.                                                                                                                                                    | `200` với paginated `sessions[]`.                                                                                         | `400` range/pagination không hợp lệ. `401` invalid session. `403` không sở hữu child. `404` child not found.                                                                    | Limit có trần, ví dụ <= 100. Date range hợp lệ.                                                                                                                                                                                                                      | UC-DASH-01                                           | Thiếu         |
+| `POST` | `/children/:childId/contents/:contentId/unlock` | Dùng sao để mở khóa content trả phí.                                              | Parent sở hữu child.        | Path: `childId`, `contentId`.                                                                                                                                                                               | `201` với `unlock`, `child_total_stars`.                                                                                  | `400` UUID không hợp lệ. `401` invalid session. `403` không sở hữu child. `404` child/content not found. `409` không đủ sao hoặc đã unlock.                                     | Content phải published; cost >= 0; atomic update phải bảo đảm `total_stars >= cost`. Star transaction ledger vẫn thiếu.                                                                                                                                              | UC-ECON-01                                           | Một phần      |
 
 ### Pets và Store
 
@@ -936,15 +953,15 @@ Error body chuẩn:
 
 ### Tracking, Regulation, Alerts, Reports
 
-| Method | Path                                     | Mục đích                                            | Auth/Authz                                   | Request                                                                                                                 | Response                                                      | Error responses                                                                                                          | Validation                                                                                                                                                          | Use case liên quan                  | Trạng thái                 |
-| ------ | ---------------------------------------- | --------------------------------------------------- | -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- | -------------------------- |
-| `POST` | `/children/:childId/emotion-logs`        | Ghi nhận emotion/behavior event đã suy ra.          | Parent sở hữu child.                         | Body: `emotion_value`, `trigger_source`, optional `duration_seconds`, optional suy luận `confidence_score`, `metadata`. | `201` với `log`.                                              | `400` UUID/emotion/source/duration không hợp lệ. `401` invalid session. `403` không sở hữu child. `404` child not found. | Emotion/source enum; duration là số nguyên dương; confidence convention là TODO. Backend không gọi AI service và không được nhận raw webcam frame.                  | UC-TRACK-01, UC-REG-01, UC-NOTIF-01 | Đã triển khai basic create |
-| `GET`  | `/children/:childId/emotion-logs`        | Liệt kê lịch sử cảm xúc của trẻ.                    | Parent sở hữu child.                         | Query: optional `from`, `to`, `emotion`, `trigger_source`, `limit`, `cursor`.                                           | `200` với paginated `logs[]` và `next_cursor`.                | `400` filter không hợp lệ. `401` invalid session. `403` không sở hữu child. `404` child not found.                       | Limit cap; date range hợp lệ; enum filter hợp lệ.                                                                                                                   | UC-TRACK-01, UC-DASH-01             | Đã triển khai basic list   |
-| `POST` | `/children/:childId/regulation-events`   | Ghi nhận can thiệp điều hòa cảm giác do AI trigger. | Parent sở hữu child qua client child-facing. | Body: `trigger_emotion_log_id`, `action`, `started_at`, optional `ended_at`, `duration_seconds`, `metadata`.            | `201` với `regulation_event`.                                 | `400` body không hợp lệ. `401` invalid session. `403` không sở hữu child. `404` child/log not found.                     | Action enum: `REDUCE_BRIGHTNESS`, `PAUSE_ANIMATION`, `PLAY_CALMING_AUDIO`, `VOICE_PROMPT`, `TIMEOUT`, `SHOW_STORY`, `RESUME`. Không hỗ trợ parent trigger thủ công. | UC-REG-01, UC-REG-02                | Thiếu, suy luận            |
-| `GET`  | `/children/:childId/regulation-events`   | Liệt kê lịch sử regulation.                         | Parent sở hữu child.                         | Query: optional `from`, `to`, `action`, `limit`, `cursor`.                                                              | `200` với paginated `regulation_events[]`.                    | `400` filter không hợp lệ. `401` invalid session. `403` không sở hữu child. `404` child not found.                       | Limit cap và date range hợp lệ.                                                                                                                                     | UC-REG-01, UC-REG-02, UC-DASH-01    | Thiếu, suy luận            |
-| `GET`  | `/children/:childId/alerts`              | Liệt kê alert gửi cho phụ huynh về một child.       | Parent sở hữu child.                         | Query: optional `from`, `to`, `status`, `limit`, `cursor`.                                                              | `200` với `alerts[]`.                                         | `400` filter không hợp lệ. `401` invalid session. `403` không sở hữu child. `404` child not found.                       | Alert chỉ được generate khi duration của cảm xúc tiêu cực lớn hơn 60 giây.                                                                                          | UC-NOTIF-01, UC-DASH-01             | Thiếu, suy luận            |
-| `GET`  | `/children/:childId/dashboard`           | Trả dashboard học tập và cảm xúc của trẻ.           | Parent sở hữu child.                         | Query: `days` optional integer 1-90.                                                                                    | `200` với `child`, `learning`, `emotions`, `meltdown_alerts`. | `400` UUID/days không hợp lệ. `401` invalid session. `403` không sở hữu child. `404` parent/child not found.             | Days default 7; tối đa 90.                                                                                                                                          | UC-DASH-01                          | Đã triển khai basic        |
-| `GET`  | `/children/:childId/reports/summary.pdf` | Export PDF report thân thiện, dễ đọc.               | Parent sở hữu child.                         | Query: optional `from`, `to`, `days`, `include_emotions`, `include_learning`.                                           | `200` `application/pdf`.                                      | `400` range không hợp lệ. `401` invalid session. `403` không sở hữu child. `404` child not found. `500` lỗi generate.    | Date range có giới hạn; default range, ví dụ 30 ngày. Ưu tiên summary/chart dễ đọc hơn raw log. Audit export event.                                                 | UC-DASH-02                          | Thiếu                      |
+| Method | Path                                     | Mục đích                                            | Auth/Authz                                   | Request                                                                                                                                                                          | Response                                                      | Error responses                                                                                                                                | Validation                                                                                                                                                          | Use case liên quan                  | Trạng thái               |
+| ------ | ---------------------------------------- | --------------------------------------------------- | -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- | ------------------------ |
+| `POST` | `/children/:childId/emotion-logs`        | Ghi nhận emotion/behavior event đã suy ra.          | Parent sở hữu child.                         | Body: `emotion_value` hoặc `ai_result.emotion`, `trigger_source`, optional `duration_seconds`, `confidence_score`, `ai_emotion_label`, `ai_confidence`, `ai_scores`, `metadata`. | `201` với `log`.                                              | `400` UUID/emotion/source/duration/confidence/AI payload không hợp lệ. `401` invalid session. `403` không sở hữu child. `404` child not found. | Chấp nhận backend emotion enum và model label `happy`, `sad`, `angry`, `fear`, `neutral`; duration là số nguyên dương; confidence/scores 0-1; cấm raw webcam frame. | UC-TRACK-01, UC-REG-01, UC-NOTIF-01 | Đã triển khai            |
+| `GET`  | `/children/:childId/emotion-logs`        | Liệt kê lịch sử cảm xúc của trẻ.                    | Parent sở hữu child.                         | Query: optional `from`, `to`, `emotion`, `trigger_source`, `limit`, `cursor`.                                                                                                    | `200` với paginated `logs[]` và `next_cursor`.                | `400` filter không hợp lệ. `401` invalid session. `403` không sở hữu child. `404` child not found.                                             | Limit cap; date range hợp lệ; enum filter hợp lệ.                                                                                                                   | UC-TRACK-01, UC-DASH-01             | Đã triển khai basic list |
+| `POST` | `/children/:childId/regulation-events`   | Ghi nhận can thiệp điều hòa cảm giác do AI trigger. | Parent sở hữu child qua client child-facing. | Body: `trigger_emotion_log_id`, `action`, `started_at`, optional `ended_at`, `duration_seconds`, `metadata`.                                                                     | `201` với `regulation_event`.                                 | `400` body không hợp lệ. `401` invalid session. `403` không sở hữu child. `404` child/log not found.                                           | Action enum: `REDUCE_BRIGHTNESS`, `PAUSE_ANIMATION`, `PLAY_CALMING_AUDIO`, `VOICE_PROMPT`, `TIMEOUT`, `SHOW_STORY`, `RESUME`. Không hỗ trợ parent trigger thủ công. | UC-REG-01, UC-REG-02                | Thiếu, suy luận          |
+| `GET`  | `/children/:childId/regulation-events`   | Liệt kê lịch sử regulation.                         | Parent sở hữu child.                         | Query: optional `from`, `to`, `action`, `limit`, `cursor`.                                                                                                                       | `200` với paginated `regulation_events[]`.                    | `400` filter không hợp lệ. `401` invalid session. `403` không sở hữu child. `404` child not found.                                             | Limit cap và date range hợp lệ.                                                                                                                                     | UC-REG-01, UC-REG-02, UC-DASH-01    | Thiếu, suy luận          |
+| `GET`  | `/children/:childId/alerts`              | Liệt kê alert gửi cho phụ huynh về một child.       | Parent sở hữu child.                         | Query: optional `from`, `to`, `status`, `limit`, `cursor`.                                                                                                                       | `200` với `alerts[]`.                                         | `400` filter không hợp lệ. `401` invalid session. `403` không sở hữu child. `404` child not found.                                             | Alert chỉ được generate khi duration của cảm xúc tiêu cực lớn hơn 60 giây.                                                                                          | UC-NOTIF-01, UC-DASH-01             | Thiếu, suy luận          |
+| `GET`  | `/children/:childId/dashboard`           | Trả dashboard học tập và cảm xúc của trẻ.           | Parent sở hữu child.                         | Query: `days` optional integer 1-90.                                                                                                                                             | `200` với `child`, `learning`, `emotions`, `meltdown_alerts`. | `400` UUID/days không hợp lệ. `401` invalid session. `403` không sở hữu child. `404` parent/child not found.                                   | Days default 7; tối đa 90.                                                                                                                                          | UC-DASH-01                          | Đã triển khai basic      |
+| `GET`  | `/children/:childId/reports/summary.pdf` | Export PDF report thân thiện, dễ đọc.               | Parent sở hữu child.                         | Query: optional `from`, `to`, `days`, `include_emotions`, `include_learning`.                                                                                                    | `200` `application/pdf`.                                      | `400` range không hợp lệ. `401` invalid session. `403` không sở hữu child. `404` child not found. `500` lỗi generate.                          | Date range có giới hạn; default range, ví dụ 30 ngày. Ưu tiên summary/chart dễ đọc hơn raw log. Audit export event.                                                 | UC-DASH-02                          | Thiếu                    |
 
 ### Admin
 
@@ -974,8 +991,8 @@ Error body chuẩn:
 2. Route content session completion cho lecture, quiz, game và abandoned session.
 3. Use case idempotency cho content session quanh reward sao cố định.
 4. Star ledger bất biến để debug biến động balance.
-5. AI game scoring contract và detection confidence threshold.
-6. Emotion catalog cuối cùng.
+5. Rule xác định AI game thành công cho content-session completion.
+6. Emotion catalog cuối cùng cho UX quiz/report ngoài các nhãn model bên ngoài.
 7. Regulation event model và route.
 8. Alert model, alert cooldown và tracking notification status.
 9. PDF report export.
@@ -1007,11 +1024,12 @@ Error body chuẩn:
 12. Cấm upload/lưu raw webcam frame.
 13. Stress/meltdown không có ngưỡng nào khác ngoài duration cảm xúc tiêu cực lớn hơn 60 giây.
 14. Admin định nghĩa media quiz, danh sách emotion đáp án và đáp án đúng; trẻ thấy đáp án emotion dưới dạng emoji.
+15. Nhãn emotion model bên ngoài hiện là `happy`, `sad`, `angry`, `fear`, `neutral`; `fear` được map về backend `SCARED`.
 
 Câu hỏi còn mở cho các điểm chưa quyết định:
 
-1. AI game detection confidence threshold nào xác định detection thành công được chấp nhận?
-2. Emotion catalog chuẩn cho quiz, emotion log, AI game target, emoji rendering và report là gì?
+1. Rule sản phẩm chính xác nào xác định một lượt AI game thành công khi model trả predicted label, confidence và all label scores?
+2. Emotion catalog chuẩn cho quiz, AI game target, emoji rendering và report ngoài 5 nhãn model là gì?
 
 ## Ghi chú Triển khai cho Developer
 
@@ -1032,7 +1050,7 @@ Câu hỏi còn mở cho các điểm chưa quyết định:
 7. Không tin `is_correct` do client gửi cho quiz. Backend phải so sánh selected answer với correct answer/options đã lưu.
 8. Định nghĩa TypeScript type chặt cho `preferences`. Tránh metadata lỏng kiểu `any`.
 9. Validate `answer_emotions` do admin định nghĩa trước khi build Quiz API. `correct_emotion` phải nằm trong `answer_emotions`; tập giá trị hợp lệ cuối cùng phụ thuộc emotion catalog TODO.
-10. Xem AI score là outcome đã suy ra do frontend gửi. Backend này không gọi AI service trực tiếp, nên endpoint reward cần validate score range chặt, idempotency và first-reward enforcement.
+10. Xem AI label/confidence/scores là outcome đã suy ra do frontend gửi. Backend này không gọi AI service trực tiếp, nên endpoint reward cần validate chặt model result, idempotency và first-reward enforcement.
 11. Chỉ lưu event suy ra từ webcam, không lưu raw frame. Cấm upload/lưu raw webcam frame kể cả khi sau này thêm media upload khác.
 12. Dùng cursor pagination cho logs, sessions, users, content và admin analytics. Offset pagination chỉ phù hợp cho danh sách admin nhỏ.
 13. Giữ error envelope hiện có trong `docs/API.md` cho mọi endpoint.

@@ -210,6 +210,11 @@ export const emotionLogs = pgTable(
     emotionValue: text("emotion_value").notNull(),
     triggerSource: text("trigger_source").notNull(),
     durationSeconds: integer("duration_seconds"),
+    confidenceScore: real("confidence_score"),
+    aiEmotionLabel: text("ai_emotion_label"),
+    aiConfidence: real("ai_confidence"),
+    aiScores: jsonb("ai_scores").$type<Record<string, number>>(),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>(),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "string" })
       .defaultNow()
       .notNull(),
@@ -226,6 +231,22 @@ export const emotionLogs = pgTable(
       name: "emotion_logs_child_id_fkey",
     }).onDelete("cascade"),
     check("emotion_logs_duration_check", sql`duration_seconds > 0 OR duration_seconds IS NULL`),
+    check(
+      "emotion_logs_confidence_score_check",
+      sql`confidence_score IS NULL OR (confidence_score >= 0 AND confidence_score <= 1)`,
+    ),
+    check(
+      "emotion_logs_ai_confidence_check",
+      sql`ai_confidence IS NULL OR (ai_confidence >= 0 AND ai_confidence <= 1)`,
+    ),
+    check(
+      "emotion_logs_ai_scores_object_check",
+      sql`ai_scores IS NULL OR jsonb_typeof(ai_scores) = 'object'`,
+    ),
+    check(
+      "emotion_logs_metadata_object_check",
+      sql`metadata IS NULL OR jsonb_typeof(metadata) = 'object'`,
+    ),
   ],
 );
 
@@ -317,6 +338,8 @@ export const game = pgTable(
     difficultyLevel: integer("difficulty_level").default(1).notNull(),
     isDefault: boolean("is_default").default(false).notNull(),
     unlockStarCost: integer("unlock_star_cost").default(0).notNull(),
+    promptAssetType: text("prompt_asset_type"),
+    promptAssetUrl: text("prompt_asset_url"),
   },
   (table) => [
     foreignKey({
@@ -327,6 +350,10 @@ export const game = pgTable(
     check("game_difficulty_check", sql`difficulty_level >= 1 AND difficulty_level <= 3`),
     check("game_star_cost_check", sql`unlock_star_cost >= 0`),
     check("game_time_limit_check", sql`time_limit_seconds > 0`),
+    check(
+      "game_prompt_asset_type_check",
+      sql`prompt_asset_type IS NULL OR prompt_asset_type = ANY (ARRAY['ICON'::text, 'IMAGE'::text, 'VIDEO'::text])`,
+    ),
   ],
 );
 
@@ -369,6 +396,14 @@ export const contentSessions = pgTable(
     isCorrect: boolean("is_correct"),
     starsEarned: integer("stars_earned").default(0).notNull(),
     aiMatchScore: real("ai_match_score"),
+    selectedEmotion: text("selected_emotion"),
+    idempotencyKey: text("idempotency_key"),
+    startedAt: timestamp("started_at", { withTimezone: true, mode: "string" }),
+    completedAt: timestamp("completed_at", { withTimezone: true, mode: "string" }),
+    aiDetectedEmotion: text("ai_detected_emotion"),
+    aiConfidence: real("ai_confidence"),
+    aiScores: jsonb("ai_scores").$type<Record<string, number>>(),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>(),
     status: text("status").default("COMPLETED").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "string" })
       .defaultNow()
@@ -383,6 +418,9 @@ export const contentSessions = pgTable(
     uniqueIndex("content_sessions_one_reward_per_content_idx")
       .on(table.childId, table.unlockContentId)
       .where(sql`status = 'COMPLETED' AND stars_earned > 0`),
+    uniqueIndex("content_sessions_child_idempotency_key_idx")
+      .on(table.childId, table.idempotencyKey)
+      .where(sql`idempotency_key IS NOT NULL`),
     foreignKey({
       columns: [table.childId],
       foreignColumns: [childProfiles.id],
@@ -398,6 +436,18 @@ export const contentSessions = pgTable(
       sql`status = ANY (ARRAY['COMPLETED'::text, 'ABANDONED'::text])`,
     ),
     check("content_sessions_stars_check", sql`stars_earned >= 0`),
+    check(
+      "content_sessions_ai_confidence_check",
+      sql`ai_confidence IS NULL OR (ai_confidence >= 0 AND ai_confidence <= 1)`,
+    ),
+    check(
+      "content_sessions_ai_scores_object_check",
+      sql`ai_scores IS NULL OR jsonb_typeof(ai_scores) = 'object'`,
+    ),
+    check(
+      "content_sessions_metadata_object_check",
+      sql`metadata IS NULL OR jsonb_typeof(metadata) = 'object'`,
+    ),
   ],
 );
 

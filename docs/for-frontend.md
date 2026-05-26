@@ -14,7 +14,13 @@ Backend hỗ trợ ứng dụng HMI giúp trẻ tự kỷ học nhận diện c�
 - Dashboard cơ bản cho phụ huynh.
 - Quản lý danh mục pet cho admin.
 
-Backend không chạy AI/computer vision. Frontend gọi AI service riêng, sau đó chỉ gửi kết quả đã suy ra về backend. Không upload hoặc lưu raw webcam frame.
+Backend không chạy AI/computer vision hoặc chatbot. Frontend gọi AI service riêng, sau đó chỉ gửi kết quả đã suy ra về backend. Không upload hoặc lưu raw webcam frame.
+
+AI service hiện biết:
+
+- Chatbot "Bạn thỏ": `http://localhost:8080`, có `GET /health` và `POST /chat`.
+- Emotion model: `http://localhost:9000`, có `GET /health`, `GET /model/info`, `GET /model/download`, `POST /model/predict`.
+- Model emotion trả `happy`, `sad`, `angry`, `fear`, `neutral`; backend map `fear` thành `SCARED`.
 
 ## 2. Nguyên tắc tích hợp
 
@@ -121,6 +127,7 @@ Content có 3 loại:
 - `LECTURE`: bài giảng/media nhận diện cảm xúc.
 - `QUIZ`: câu hỏi có danh sách emotion để trẻ chọn.
 - `GAME`: game AI bắt chước cảm xúc.
+- Game có thể có `prompt_asset_type` là `ICON`, `IMAGE`, `VIDEO`; hướng frontend hiện tại là level 1 dùng icon, level 2 dùng ảnh, level 3 dùng video.
 
 Quy tắc hiện tại:
 
@@ -141,9 +148,9 @@ Logic đã có trong code cho giai đoạn sau:
 - Sao thuộc về từng hồ sơ trẻ, không thuộc tài khoản phụ huynh.
 - Backend mới là nơi tính sao; frontend không tự cộng sao.
 - Reward policy trong code hiện là:
-  - Hoàn thành lecture: 10 sao.
-  - Quiz đúng: 20 sao.
-  - AI game thành công: 30 sao.
+  - Hoàn thành lecture: 1 sao.
+  - Quiz đúng: 2 sao.
+  - AI game thành công: 3 sao.
 - Một trẻ chỉ được nhận reward một lần cho cùng một content. Lần hoàn thành sau vẫn có thể ghi lịch sử nhưng không cộng thêm sao.
 
 Frontend nên hiển thị số sao từ API (`total_stars`, `child_total_stars`) và refresh sau các thao tác mua/mở khóa.
@@ -152,13 +159,14 @@ Frontend nên hiển thị số sao từ API (`total_stars`, `child_total_stars`
 
 Frontend/AI gửi emotion log khi đã suy ra trạng thái cảm xúc. Body hiện gồm:
 
-- `emotion_value`: `HAPPY`, `SAD`, `ANGRY`, `STRESSED`, `CALM`, `NEUTRAL`, `SCARED`, `SURPRISED`.
+- `emotion_value`: `HAPPY`, `SAD`, `ANGRY`, `STRESSED`, `CALM`, `NEUTRAL`, `SCARED`, `SURPRISED`; cũng có thể gửi nhãn model `happy`, `sad`, `angry`, `fear`, `neutral`.
 - `trigger_source`: `AAC_BOARD`, `GAME`, `QUIZ`, `LECTURE`, `WEBCAM`, `SYSTEM`.
 - `duration_seconds`: tùy chọn, phải là số nguyên dương nếu gửi.
+- `confidence_score`, `ai_emotion_label`, `ai_confidence`, `ai_scores`, `ai_result`, `metadata`: tùy chọn, dùng để lưu kết quả model đã suy ra.
 
 Quy tắc alert hiện tại:
 
-- Backend xem `SAD`, `ANGRY`, `STRESSED` có `duration_seconds > 60` là meltdown alert.
+- Backend xem `SAD`, `ANGRY`, `STRESSED`, `SCARED` có `duration_seconds > 60` là meltdown alert.
 - `GET /children/:childId/dashboard` trả dashboard theo `days`, mặc định 7 ngày, tối đa 90 ngày.
 - Dashboard hiện có learning summary, emotion counts và `meltdown_alerts`.
 
