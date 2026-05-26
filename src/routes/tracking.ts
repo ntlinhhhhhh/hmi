@@ -1,11 +1,10 @@
 import { Elysia, t } from "elysia";
 import { getChildDashboard } from "../usecases/dashboard/get_child_dashboard.ts";
-import { createChildRegulationEvent } from "../usecases/tracking/create_regulation_event.ts";
+import { exportChildSummaryPdf } from "../usecases/reports/export_child_summary_pdf.ts";
+import { createChatbotAlert } from "../usecases/tracking/create_chatbot_alert.ts";
 import { listEmotionLogs } from "../usecases/tracking/list_emotion_logs.ts";
 import { listChildAlerts } from "../usecases/tracking/list_child_alerts.ts";
-import { listChildRegulationEvents } from "../usecases/tracking/list_regulation_events.ts";
 import { recordEmotionLog } from "../usecases/tracking/log_emotion.ts";
-import type { RegulationEventResult } from "../usecases/tracking/regulation_models.ts";
 import { withApiErrorHandler } from "./api_error_handler.ts";
 import { requireAuth } from "./middleware/require_auth.ts";
 
@@ -19,17 +18,25 @@ function parseOptionalNumber(rawValue: string | undefined): number | undefined {
   return Number(rawValue);
 }
 
-function formatRegulationEvent(event: RegulationEventResult) {
+function formatChatbotAlert(alert: {
+  id: string;
+  childId: string;
+  reason: string;
+  source: string;
+  notificationStatus: string;
+  notificationSentAt: string | null;
+  notificationError: string | null;
+  createdAt: string;
+}) {
   return {
-    id: event.id,
-    child_id: event.childId,
-    trigger_emotion_log_id: event.triggerEmotionLogId,
-    action: event.action,
-    started_at: event.startedAt,
-    ended_at: event.endedAt,
-    duration_seconds: event.durationSeconds,
-    metadata: event.metadata,
-    created_at: event.createdAt,
+    id: alert.id,
+    child_id: alert.childId,
+    reason: alert.reason,
+    source: alert.source,
+    notification_status: alert.notificationStatus,
+    notification_sent_at: alert.notificationSentAt,
+    notification_error: alert.notificationError,
+    created_at: alert.createdAt,
   };
 }
 
@@ -133,72 +140,6 @@ const protectedTrackingRouter = new Elysia()
       }),
     },
   )
-  .post(
-    "/children/:childId/regulation-events",
-    async ({ authUserId, params, body, set }) => {
-      const event = await createChildRegulationEvent({
-        parentId: authUserId,
-        childId: params.childId,
-        triggerEmotionLogId: body.trigger_emotion_log_id,
-        action: body.action,
-        startedAt: body.started_at,
-        endedAt: body.ended_at,
-        durationSeconds: body.duration_seconds,
-        metadata: body.metadata,
-      });
-
-      set.status = 201;
-      return {
-        message: "Regulation event recorded successfully.",
-        regulation_event: formatRegulationEvent(event),
-      };
-    },
-    {
-      params: t.Object({
-        childId: t.String(),
-      }),
-      body: t.Object({
-        trigger_emotion_log_id: t.String(),
-        action: t.String(),
-        started_at: t.String(),
-        ended_at: t.Optional(t.String()),
-        duration_seconds: t.Optional(t.Number()),
-        metadata: t.Optional(t.Unknown()),
-      }),
-    },
-  )
-  .get(
-    "/children/:childId/regulation-events",
-    async ({ authUserId, params, query, set }) => {
-      const result = await listChildRegulationEvents({
-        parentId: authUserId,
-        childId: params.childId,
-        action: query.action,
-        from: query.from,
-        to: query.to,
-        cursor: query.cursor,
-        limit: parseOptionalNumber(query.limit),
-      });
-
-      set.status = 200;
-      return {
-        regulation_events: result.regulationEvents.map(formatRegulationEvent),
-        next_cursor: result.nextCursor,
-      };
-    },
-    {
-      params: t.Object({
-        childId: t.String(),
-      }),
-      query: t.Object({
-        action: t.Optional(t.String()),
-        from: t.Optional(t.String()),
-        to: t.Optional(t.String()),
-        cursor: t.Optional(t.String()),
-        limit: t.Optional(t.String()),
-      }),
-    },
-  )
   .get(
     "/children/:childId/dashboard",
     async ({ authUserId, params, query, set }) => {
@@ -228,13 +169,17 @@ const protectedTrackingRouter = new Elysia()
           emotion: emotion.emotion,
           count: emotion.count,
         })),
-        meltdown_alerts: dashboard.meltdownAlerts.map((alert) => ({
-          id: alert.id,
-          emotion_value: alert.emotionValue,
-          trigger_source: alert.triggerSource,
-          duration_seconds: alert.durationSeconds,
-          created_at: alert.createdAt,
-        })),
+        chatbot_alerts: {
+          total: dashboard.chatbotAlerts.total,
+          recent: dashboard.chatbotAlerts.recent.map((alert) => ({
+            id: alert.id,
+            reason: alert.reason,
+            notification_status: alert.notificationStatus,
+            notification_sent_at: alert.notificationSentAt,
+            notification_error: alert.notificationError,
+            created_at: alert.createdAt,
+          })),
+        },
       };
     },
     {
@@ -243,6 +188,30 @@ const protectedTrackingRouter = new Elysia()
       }),
       query: t.Object({
         days: t.Optional(t.String()),
+      }),
+    },
+  )
+  .post(
+    "/children/:childId/alerts",
+    async ({ authUserId, params, body, set }) => {
+      const alert = await createChatbotAlert({
+        parentId: authUserId,
+        childId: params.childId,
+        reason: body.reason,
+      });
+
+      set.status = 201;
+      return {
+        message: "Chatbot warning alert recorded successfully.",
+        alert: formatChatbotAlert(alert),
+      };
+    },
+    {
+      params: t.Object({
+        childId: t.String(),
+      }),
+      body: t.Object({
+        reason: t.String(),
       }),
     },
   )
@@ -260,19 +229,7 @@ const protectedTrackingRouter = new Elysia()
 
       set.status = 200;
       return {
-        alerts: result.alerts.map((alert) => ({
-          id: alert.id,
-          child_id: alert.childId,
-          emotion_value: alert.emotionValue,
-          trigger_source: alert.triggerSource,
-          duration_seconds: alert.durationSeconds,
-          confidence_score: alert.confidenceScore,
-          ai_emotion_label: alert.aiEmotionLabel,
-          ai_confidence: alert.aiConfidence,
-          ai_scores: alert.aiScores,
-          metadata: alert.metadata,
-          created_at: alert.createdAt,
-        })),
+        alerts: result.alerts.map(formatChatbotAlert),
         next_cursor: result.nextCursor,
       };
     },
@@ -285,6 +242,37 @@ const protectedTrackingRouter = new Elysia()
         to: t.Optional(t.String()),
         cursor: t.Optional(t.String()),
         limit: t.Optional(t.String()),
+      }),
+    },
+  )
+  .get(
+    "/children/:childId/reports/summary.pdf",
+    async ({ authUserId, params, query }) => {
+      const report = await exportChildSummaryPdf({
+        parentId: authUserId,
+        childId: params.childId,
+        from: query.from,
+        to: query.to,
+        days: parseDays(query.days),
+      });
+
+      return new Response(report.pdfBytes, {
+        status: 200,
+        headers: {
+          "Content-Type": "application/pdf",
+          "Content-Disposition": `attachment; filename="${report.fileName}"`,
+          "Content-Length": report.pdfBytes.byteLength.toString(),
+        },
+      });
+    },
+    {
+      params: t.Object({
+        childId: t.String(),
+      }),
+      query: t.Object({
+        from: t.Optional(t.String()),
+        to: t.Optional(t.String()),
+        days: t.Optional(t.String()),
       }),
     },
   );

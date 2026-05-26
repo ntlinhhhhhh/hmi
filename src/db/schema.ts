@@ -28,12 +28,8 @@ export interface PreferencesMetadata {
   theme?: string;
   musicTrackId?: string | null;
   musicVolume?: number;
-  voicePromptEnabled?: boolean;
   highContrastEnabled?: boolean;
   reducedMotionEnabled?: boolean;
-  brightnessLevel?: number;
-  timeoutSeconds?: number;
-  calmingStoryEnabled?: boolean;
 }
 
 // Tables
@@ -251,53 +247,39 @@ export const emotionLogs = pgTable(
   ],
 );
 
-export const regulationEvents = pgTable(
-  "regulation_events",
+export const alerts = pgTable(
+  "alerts",
   {
     id: uuid().primaryKey().notNull(),
     childId: uuid("child_id").notNull(),
-    triggerEmotionLogId: uuid("trigger_emotion_log_id").notNull(),
-    action: text("action").notNull(),
-    startedAt: timestamp("started_at", { withTimezone: true, mode: "string" }).notNull(),
-    endedAt: timestamp("ended_at", { withTimezone: true, mode: "string" }),
-    durationSeconds: integer("duration_seconds"),
-    metadata: jsonb("metadata").$type<Record<string, unknown>>(),
+    reason: text("reason").notNull(),
+    source: text("source").default("CHATBOT").notNull(),
+    notificationStatus: text("notification_status").default("PENDING").notNull(),
+    notificationSentAt: timestamp("notification_sent_at", { withTimezone: true, mode: "string" }),
+    notificationError: text("notification_error"),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "string" })
       .defaultNow()
       .notNull(),
   },
   (table) => [
-    index("idx_regulation_events_child_id_created_at").using(
+    index("idx_alerts_child_id_created_at").using(
       "btree",
       table.childId.asc().nullsLast().op("uuid_ops"),
       table.createdAt.desc().nullsFirst().op("timestamptz_ops"),
     ),
-    index("idx_regulation_events_trigger_emotion_log_id").using(
-      "btree",
-      table.triggerEmotionLogId.asc().nullsLast().op("uuid_ops"),
-    ),
     foreignKey({
       columns: [table.childId],
       foreignColumns: [childProfiles.id],
-      name: "regulation_events_child_id_fkey",
-    }).onDelete("cascade"),
-    foreignKey({
-      columns: [table.triggerEmotionLogId],
-      foreignColumns: [emotionLogs.id],
-      name: "regulation_events_trigger_emotion_log_id_fkey",
+      name: "alerts_child_id_fkey",
     }).onDelete("cascade"),
     check(
-      "regulation_events_action_check",
-      sql`action = ANY (ARRAY['REDUCE_BRIGHTNESS'::text, 'PAUSE_ANIMATION'::text, 'PLAY_CALMING_AUDIO'::text, 'VOICE_PROMPT'::text, 'TIMEOUT'::text, 'SHOW_STORY'::text, 'RESUME'::text])`,
+      "alerts_reason_length_check",
+      sql`char_length(reason) > 0 AND char_length(reason) <= 1000`,
     ),
+    check("alerts_source_check", sql`source = 'CHATBOT'::text`),
     check(
-      "regulation_events_duration_check",
-      sql`duration_seconds IS NULL OR duration_seconds > 0`,
-    ),
-    check("regulation_events_time_check", sql`ended_at IS NULL OR ended_at >= started_at`),
-    check(
-      "regulation_events_metadata_object_check",
-      sql`metadata IS NULL OR jsonb_typeof(metadata) = 'object'`,
+      "alerts_notification_status_check",
+      sql`notification_status = ANY (ARRAY['PENDING'::text, 'SENT'::text, 'FAILED'::text, 'NO_DEVICES'::text])`,
     ),
   ],
 );
@@ -581,14 +563,20 @@ export const deviceTokens = pgTable(
       .notNull(),
   },
   (table) => [
-    index("idx_device_tokens_user_id").using("btree", table.userId.asc().nullsLast().op("uuid_ops")),
+    index("idx_device_tokens_user_id").using(
+      "btree",
+      table.userId.asc().nullsLast().op("uuid_ops"),
+    ),
     foreignKey({
       columns: [table.userId],
       foreignColumns: [users.id],
       name: "device_tokens_user_id_fkey",
     }).onDelete("cascade"),
     unique("device_tokens_push_token_key").on(table.pushToken),
-    check("device_tokens_platform_check", sql`platform = ANY (ARRAY['WEB'::text, 'IOS'::text, 'ANDROID'::text])`),
+    check(
+      "device_tokens_platform_check",
+      sql`platform = ANY (ARRAY['WEB'::text, 'IOS'::text, 'ANDROID'::text])`,
+    ),
   ],
 );
 
@@ -615,6 +603,36 @@ export const starTransactions = pgTable(
       foreignColumns: [childProfiles.id],
       name: "star_transactions_child_id_fkey",
     }).onDelete("cascade"),
-    check("star_transactions_type_check", sql`type = ANY (ARRAY['LEARNING_REWARD'::text, 'CONTENT_UNLOCK'::text, 'PET_PURCHASE'::text])`),
+    check(
+      "star_transactions_type_check",
+      sql`type = ANY (ARRAY['LEARNING_REWARD'::text, 'CONTENT_UNLOCK'::text, 'PET_PURCHASE'::text])`,
+    ),
+  ],
+);
+
+export const mediaAssets = pgTable(
+  "media_assets",
+  {
+    id: uuid().primaryKey().notNull(),
+    fileName: text("file_name").notNull(),
+    storageKey: text("storage_key").notNull(),
+    mimeType: text("mime_type").notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    purpose: text("purpose").notNull(),
+    createdBy: uuid("created_by").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("idx_media_assets_created_by").using(
+      "btree",
+      table.createdBy.asc().nullsLast().op("uuid_ops"),
+    ),
+    foreignKey({
+      columns: [table.createdBy],
+      foreignColumns: [users.id],
+      name: "media_assets_created_by_fkey",
+    }).onDelete("cascade"),
   ],
 );

@@ -715,11 +715,8 @@ GET /children/:childId/preferences
     "preferences": {
       "theme": "default",
       "music_volume": 40,
-      "voice_prompt_enabled": true,
-      "reduced_motion_enabled": false,
-      "brightness_level": 80,
-      "timeout_seconds": 60,
-      "calming_story_enabled": true
+      "high_contrast_enabled": false,
+      "reduced_motion_enabled": false
     },
     "created_at": "2026-05-21T07:14:22.170Z",
     "updated_at": "2026-05-21T07:14:22.170Z"
@@ -740,7 +737,7 @@ GET /children/:childId/preferences
 PATCH /children/:childId/preferences
 ```
 
-- Description: Updates typed sensory/UI preferences for a child profile owned by the authenticated parent.
+- Description: Updates typed child UI preferences for a child profile owned by the authenticated parent.
 - Auth required: Yes
 
 ### Request parameters:
@@ -750,7 +747,7 @@ PATCH /children/:childId/preferences
 ### Request body (application/json):
 
 - is_high_contrast (boolean, Optional): Fast high-contrast flag.
-- preferences (object, Optional): Typed settings object. Allowed keys: `theme`, `music_track_id`, `music_volume`, `voice_prompt_enabled`, `high_contrast_enabled`, `reduced_motion_enabled`, `brightness_level`, `timeout_seconds`, `calming_story_enabled`.
+- preferences (object, Optional): Typed settings object. Allowed keys: `theme`, `music_track_id`, `music_volume`, `high_contrast_enabled`, `reduced_motion_enabled`.
 
 ```json
 {
@@ -759,11 +756,8 @@ PATCH /children/:childId/preferences
     "theme": "high_contrast",
     "music_track_id": "calm-1",
     "music_volume": 35,
-    "voice_prompt_enabled": true,
-    "reduced_motion_enabled": true,
-    "brightness_level": 70,
-    "timeout_seconds": 90,
-    "calming_story_enabled": true
+    "high_contrast_enabled": true,
+    "reduced_motion_enabled": true
   }
 }
 ```
@@ -1520,107 +1514,6 @@ GET /children/:childId/emotion-logs
 - [403 Forbidden] - Possible `type` values: ACCOUNT_BANNED, PARENT_NOT_ACTIVE, CHILD_NOT_OWNED.
 - [404 Not Found] - Possible `type` values: PARENT_NOT_FOUND, CHILD_NOT_FOUND.
 
-## Record regulation event
-
-- Endpoint:
-
-```text
-POST /children/:childId/regulation-events
-```
-
-- Description: Records a sensory regulation action triggered from a derived emotion log.
-- Auth required: Yes
-
-### Request parameters:
-
-- childId (string, Required): UUID of the child profile.
-
-### Request body (application/json):
-
-- trigger_emotion_log_id (string, Required): UUID of an emotion log belonging to the same child.
-- action (string, Required): One of `REDUCE_BRIGHTNESS`, `PAUSE_ANIMATION`, `PLAY_CALMING_AUDIO`, `VOICE_PROMPT`, `TIMEOUT`, `SHOW_STORY`, `RESUME`.
-- started_at (string, Required): ISO date.
-- ended_at (string, Optional): ISO date, not before `started_at`.
-- duration_seconds (number, Optional): Positive integer duration in seconds.
-- metadata (object, Optional): Extra derived client context. Must be a JSON object, no raw image/frame data.
-
-### Responses:
-
-- [201 Created] - Regulation event recorded successfully.
-
-```json
-{
-  "message": "Regulation event recorded successfully.",
-  "regulation_event": {
-    "id": "a23e4567-e89b-12d3-a456-426614174000",
-    "child_id": "323e4567-e89b-12d3-a456-426614174000",
-    "trigger_emotion_log_id": "423e4567-e89b-12d3-a456-426614174000",
-    "action": "TIMEOUT",
-    "started_at": "2026-05-21T07:14:22.170Z",
-    "ended_at": null,
-    "duration_seconds": 60,
-    "metadata": null,
-    "created_at": "2026-05-21T07:14:22.170Z"
-  }
-}
-```
-
-- [400 Bad Request] - Possible `type` values: INVALID_JSON, INVALID_CHILD_ID, MISSING_TRIGGER_EMOTION_LOG_ID, INVALID_TRIGGER_EMOTION_LOG_ID, MISSING_ACTION, INVALID_ACTION, MISSING_STARTED_AT, INVALID_STARTED_AT, INVALID_ENDED_AT, INVALID_DURATION, INVALID_METADATA.
-- [401 Unauthorized] - Possible `type` values: MISSING_SESSION_TOKEN, INVALID_SESSION.
-- [403 Forbidden] - Possible `type` values: ACCOUNT_BANNED, PARENT_NOT_ACTIVE, CHILD_NOT_OWNED.
-- [404 Not Found] - Possible `type` values: PARENT_NOT_FOUND, CHILD_NOT_FOUND, TRIGGER_EMOTION_LOG_NOT_FOUND.
-
-## List regulation events
-
-- Endpoint:
-
-```text
-GET /children/:childId/regulation-events
-```
-
-- Description: Lists sensory regulation events for a child profile owned by the authenticated parent.
-- Auth required: Yes
-
-### Request parameters:
-
-- childId (string, Required): UUID of the child profile.
-
-### Query parameters:
-
-- action (string, Optional): One of the supported regulation actions.
-- from (string, Optional): ISO date lower bound.
-- to (string, Optional): ISO date upper bound.
-- cursor (string, Optional): ISO `created_at` cursor returned as `next_cursor`.
-- limit (number, Optional): Integer from 1 to 100. Defaults to 50.
-
-### Responses:
-
-- [200 OK] - Regulation events returned successfully.
-
-```json
-{
-  "regulation_events": [
-    {
-      "id": "a23e4567-e89b-12d3-a456-426614174000",
-      "child_id": "323e4567-e89b-12d3-a456-426614174000",
-      "trigger_emotion_log_id": "423e4567-e89b-12d3-a456-426614174000",
-      "action": "TIMEOUT",
-      "started_at": "2026-05-21T07:14:22.170Z",
-      "ended_at": null,
-      "duration_seconds": 60,
-      "metadata": null,
-      "created_at": "2026-05-21T07:14:22.170Z"
-    }
-  ],
-  "next_cursor": null
-}
-```
-
-- [400 Bad Request] - Possible `type` values: INVALID_CHILD_ID, INVALID_ACTION, INVALID_DATE_RANGE, INVALID_CURSOR, INVALID_LIMIT.
-- [401 Unauthorized] - Possible `type` values: MISSING_SESSION_TOKEN, INVALID_SESSION.
-- [403 Forbidden] - Possible `type` values: ACCOUNT_BANNED, PARENT_NOT_ACTIVE, CHILD_NOT_OWNED.
-- [404 Not Found] - Possible `type` values: PARENT_NOT_FOUND, CHILD_NOT_FOUND.
-
 ## Get child dashboard
 
 - Endpoint:
@@ -1667,15 +1560,19 @@ GET /children/:childId/dashboard
       "count": 5
     }
   ],
-  "meltdown_alerts": [
-    {
-      "id": "423e4567-e89b-12d3-a456-426614174000",
-      "emotion_value": "SCARED",
-      "trigger_source": "WEBCAM",
-      "duration_seconds": 300,
-      "created_at": "2026-05-21T07:14:22.170Z"
-    }
-  ]
+  "chatbot_alerts": {
+    "total": 1,
+    "recent": [
+      {
+        "id": "a23e4567-e89b-12d3-a456-426614174000",
+        "reason": "The child sent an unusual chatbot message.",
+        "notification_status": "SENT",
+        "notification_sent_at": "2026-05-21T07:14:22.170Z",
+        "notification_error": null,
+        "created_at": "2026-05-21T07:14:22.170Z"
+      }
+    ]
+  }
 }
 ```
 
@@ -1683,6 +1580,33 @@ GET /children/:childId/dashboard
 - [401 Unauthorized] - Possible `type` values: MISSING_SESSION_TOKEN, INVALID_SESSION.
 - [403 Forbidden] - Possible `type` values: ACCOUNT_BANNED, CHILD_NOT_OWNED_BY_PARENT.
 - [404 Not Found] - Possible `type` values: PARENT_NOT_FOUND, CHILD_NOT_FOUND.
+
+## Export child summary PDF
+
+- Endpoint:
+
+```text
+GET /children/:childId/reports/summary.pdf
+```
+
+- Description: Exports a human-friendly PDF report for the child. The default range is the last 7 days.
+- Auth required: Yes
+
+### Query parameters:
+
+- from (string, Optional): ISO date or timestamp lower bound.
+- to (string, Optional): ISO date or timestamp upper bound.
+- days (number, Optional): Integer from 1 to 90. Used when `from` is omitted. Defaults to 7.
+
+### Responses:
+
+- [200 OK] - `application/pdf` with `Content-Disposition: attachment`.
+- [400 Bad Request] - Possible `type` values: INVALID_FROM, INVALID_TO, INVALID_DAYS, INVALID_DATE_RANGE.
+- [401 Unauthorized] - Possible `type` values: MISSING_SESSION_TOKEN, INVALID_SESSION.
+- [403 Forbidden] - Possible `type` values: ACCOUNT_BANNED, PARENT_NOT_ACTIVE, CHILD_NOT_OWNED.
+- [404 Not Found] - Possible `type` values: PARENT_NOT_FOUND, CHILD_NOT_FOUND.
+
+The report includes daily activities, completed/quit counts, emotion summary, and chatbot warning alerts.
 
 ## List child learning history (content sessions)
 
@@ -1720,6 +1644,42 @@ GET /children/:childId/content-sessions
       "is_correct": true,
       "stars_earned": 2,
       "status": "COMPLETED",
+      "created_at": "2026-05-21T07:14:22.170Z"
+    }
+  ],
+  "next_cursor": null
+}
+```
+
+## List child star transactions
+
+- Endpoint:
+
+```text
+GET /children/:childId/star-transactions
+```
+
+- Description: Returns a paginated list of star transactions (ledger history) for a child profile owned by the authenticated parent.
+- Auth required: Yes
+
+### Query parameters:
+
+- limit (number, Optional): Integer from 1 to 100. Defaults to 20.
+- cursor (string, Optional): Created at timestamp for pagination.
+
+### Responses:
+
+- [200 OK] - Star transactions returned successfully.
+
+```json
+{
+  "transactions": [
+    {
+      "id": "t23e4567-e89b-12d3-a456-426614174000",
+      "child_id": "323e4567-e89b-12d3-a456-426614174000",
+      "amount": -10,
+      "type": "PET_PURCHASE",
+      "source_id": "523e4567-e89b-12d3-a456-426614174000",
       "created_at": "2026-05-21T07:14:22.170Z"
     }
   ],
@@ -1790,6 +1750,50 @@ DELETE /devices/:deviceId
 }
 ```
 
+## Record chatbot warning alert
+
+- Endpoint:
+
+```text
+POST /children/:childId/alerts
+```
+
+- Description: Persists a frontend-classified chatbot warning event and immediately sends push notifications to active parent devices.
+- Auth required: Yes
+
+### Request body (application/json):
+
+- reason (string, Required): Warning reason shown as the push notification body. Maximum 1000 characters.
+
+```json
+{
+  "reason": "The child sent an unusual chatbot message."
+}
+```
+
+### Responses:
+
+- [201 Created] - Chatbot warning alert recorded successfully.
+
+```json
+{
+  "message": "Chatbot warning alert recorded successfully.",
+  "alert": {
+    "id": "a23e4567-e89b-12d3-a456-426614174000",
+    "child_id": "323e4567-e89b-12d3-a456-426614174000",
+    "reason": "The child sent an unusual chatbot message.",
+    "source": "CHATBOT",
+    "notification_status": "SENT",
+    "notification_sent_at": "2026-05-21T07:14:22.170Z",
+    "notification_error": null,
+    "created_at": "2026-05-21T07:14:22.170Z"
+  }
+}
+```
+
+- Push title: `HMI - Chatbot Warnings`
+- Push body: `reason`
+
 ## List parent alerts for a child
 
 - Endpoint:
@@ -1798,7 +1802,7 @@ DELETE /devices/:deviceId
 GET /children/:childId/alerts
 ```
 
-- Description: Lists parent alerts generated dynamically from negative emotion events exceeding 60 seconds.
+- Description: Lists persisted chatbot warning alerts for a child profile owned by the authenticated parent.
 - Auth required: Yes
 
 ### Query parameters:
@@ -1818,15 +1822,60 @@ GET /children/:childId/alerts
     {
       "id": "a23e4567-e89b-12d3-a456-426614174000",
       "child_id": "323e4567-e89b-12d3-a456-426614174000",
-      "emotion_value": "SAD",
-      "trigger_source": "WEBCAM",
-      "duration_seconds": 180,
+      "reason": "The child sent an unusual chatbot message.",
+      "source": "CHATBOT",
+      "notification_status": "SENT",
+      "notification_sent_at": "2026-05-21T07:14:22.170Z",
+      "notification_error": null,
       "created_at": "2026-05-21T07:14:22.170Z"
     }
   ],
   "next_cursor": null
 }
 ```
+
+## Upload admin media asset
+
+- Endpoint:
+
+```text
+POST /admin/media-assets
+```
+
+- Description: Uploads a media file to configured S3-compatible storage and stores metadata.
+- Auth required: Yes, admin only
+
+### Request body (multipart/form-data):
+
+- file (file, Required): Non-empty file, maximum 50 MB.
+- purpose (string, Required): Caller-defined media purpose, for example `CONTENT_MEDIA` or `PET_IMAGE`.
+
+### Responses:
+
+- [201 Created] - Media asset uploaded successfully.
+
+```json
+{
+  "message": "Media asset created and uploaded successfully.",
+  "media_asset": {
+    "id": "m23e4567-e89b-12d3-a456-426614174000",
+    "file_name": "lesson.mp4",
+    "storage_key": "media-assets/m23e4567-e89b-12d3-a456-426614174000-lesson.mp4",
+    "mime_type": "video/mp4",
+    "size_bytes": 1024000,
+    "purpose": "CONTENT_MEDIA",
+    "created_by": "123e4567-e89b-12d3-a456-426614174000",
+    "url": "https://storage.example.com/presigned-url",
+    "created_at": "2026-05-21T07:14:22.170Z"
+  }
+}
+```
+
+- [400 Bad Request] - Possible `type` values: MISSING_FILE, INVALID_PURPOSE.
+- [401 Unauthorized] - Possible `type` values: MISSING_SESSION_TOKEN, INVALID_SESSION.
+- [403 Forbidden] - Possible `type` values: ACCOUNT_BANNED, NOT_ADMIN.
+- [413 Payload Too Large] - Possible `type` values: FILE_TOO_LARGE.
+- [502 Bad Gateway] - Possible `type` values: STORAGE_ERROR.
 
 ## List all content including drafts (Admin)
 

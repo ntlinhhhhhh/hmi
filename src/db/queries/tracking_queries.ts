@@ -1,11 +1,7 @@
-import { eq, desc, sql, and, gte, lte, lt, inArray, type SQL } from "drizzle-orm";
+import { eq, desc, sql, and, gte, lte, lt, type SQL } from "drizzle-orm";
 import type { DbExecutor } from "../client";
 import { emotionLogs } from "../schema";
 import { randomUUID } from "crypto";
-import {
-  NEGATIVE_EMOTION_ALERT_THRESHOLD_SECONDS,
-  NEGATIVE_EMOTION_VALUES,
-} from "../../domain/emotion_policy.ts";
 
 export async function logEmotionEvent(
   db: DbExecutor,
@@ -91,55 +87,4 @@ export async function getEmotionStats(db: DbExecutor, childId: string, days: num
       ),
     )
     .groupBy(emotionLogs.emotionValue);
-}
-
-export async function getMeltdownAlerts(db: DbExecutor, childId: string, days: number = 30) {
-  return await db
-    .select()
-    .from(emotionLogs)
-    .where(
-      and(
-        eq(emotionLogs.childId, childId),
-        inArray(emotionLogs.emotionValue, [...NEGATIVE_EMOTION_VALUES]),
-        sql`${emotionLogs.durationSeconds} > ${NEGATIVE_EMOTION_ALERT_THRESHOLD_SECONDS}`,
-        gte(emotionLogs.createdAt, sql`NOW() - interval '${sql.raw(days.toString())} days'`),
-      ),
-    )
-    .orderBy(desc(emotionLogs.createdAt));
-}
-
-export type AlertListFilters = {
-  from?: string;
-  to?: string;
-  cursor?: string;
-  limit: number;
-};
-
-export async function listChildAlertRows(
-  db: DbExecutor,
-  childId: string,
-  filters: AlertListFilters,
-) {
-  const conditions: SQL<unknown>[] = [
-    eq(emotionLogs.childId, childId),
-    inArray(emotionLogs.emotionValue, [...NEGATIVE_EMOTION_VALUES]),
-    sql`${emotionLogs.durationSeconds} > ${NEGATIVE_EMOTION_ALERT_THRESHOLD_SECONDS}`,
-  ];
-
-  if (filters.from !== undefined) {
-    conditions.push(gte(emotionLogs.createdAt, filters.from));
-  }
-  if (filters.to !== undefined) {
-    conditions.push(lte(emotionLogs.createdAt, filters.to));
-  }
-  if (filters.cursor !== undefined) {
-    conditions.push(lt(emotionLogs.createdAt, filters.cursor));
-  }
-
-  return await db
-    .select()
-    .from(emotionLogs)
-    .where(and(...conditions))
-    .orderBy(desc(emotionLogs.createdAt))
-    .limit(filters.limit);
 }

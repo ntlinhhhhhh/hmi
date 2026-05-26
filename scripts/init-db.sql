@@ -167,51 +167,30 @@ CREATE INDEX IF NOT EXISTS "idx_emotion_logs_child_id_created_at"
     "created_at" timestamptz_ops DESC NULLS FIRST
   );
 
-CREATE TABLE IF NOT EXISTS "regulation_events" (
+DROP TABLE IF EXISTS "regulation_events";
+
+CREATE TABLE IF NOT EXISTS "alerts" (
   "id" uuid PRIMARY KEY NOT NULL,
   "child_id" uuid NOT NULL,
-  "trigger_emotion_log_id" uuid NOT NULL,
-  "action" text NOT NULL,
-  "started_at" timestamp with time zone NOT NULL,
-  "ended_at" timestamp with time zone,
-  "duration_seconds" integer,
-  "metadata" jsonb,
+  "reason" text NOT NULL,
+  "source" text DEFAULT 'CHATBOT' NOT NULL,
+  "notification_status" text DEFAULT 'PENDING' NOT NULL,
+  "notification_sent_at" timestamp with time zone,
+  "notification_error" text,
   "created_at" timestamp with time zone DEFAULT now() NOT NULL,
-  CONSTRAINT "regulation_events_child_id_fkey"
+  CONSTRAINT "alerts_child_id_fkey"
     FOREIGN KEY ("child_id") REFERENCES "child_profiles" ("id") ON DELETE cascade,
-  CONSTRAINT "regulation_events_trigger_emotion_log_id_fkey"
-    FOREIGN KEY ("trigger_emotion_log_id") REFERENCES "emotion_logs" ("id") ON DELETE cascade,
-  CONSTRAINT "regulation_events_action_check"
-    CHECK (
-      "action" = ANY (
-        ARRAY[
-          'REDUCE_BRIGHTNESS'::text,
-          'PAUSE_ANIMATION'::text,
-          'PLAY_CALMING_AUDIO'::text,
-          'VOICE_PROMPT'::text,
-          'TIMEOUT'::text,
-          'SHOW_STORY'::text,
-          'RESUME'::text
-        ]
-      )
-    ),
-  CONSTRAINT "regulation_events_duration_check"
-    CHECK ("duration_seconds" IS NULL OR "duration_seconds" > 0),
-  CONSTRAINT "regulation_events_time_check"
-    CHECK ("ended_at" IS NULL OR "ended_at" >= "started_at"),
-  CONSTRAINT "regulation_events_metadata_object_check"
-    CHECK ("metadata" IS NULL OR jsonb_typeof("metadata") = 'object')
+  CONSTRAINT "alerts_reason_length_check"
+    CHECK (char_length("reason") > 0 AND char_length("reason") <= 1000),
+  CONSTRAINT "alerts_source_check" CHECK ("source" = 'CHATBOT'::text),
+  CONSTRAINT "alerts_notification_status_check"
+    CHECK ("notification_status" = ANY (ARRAY['PENDING'::text, 'SENT'::text, 'FAILED'::text, 'NO_DEVICES'::text]))
 );
 
-CREATE INDEX IF NOT EXISTS "idx_regulation_events_child_id_created_at"
-  ON "regulation_events" USING btree (
+CREATE INDEX IF NOT EXISTS "idx_alerts_child_id_created_at"
+  ON "alerts" USING btree (
     "child_id" uuid_ops ASC NULLS LAST,
     "created_at" timestamptz_ops DESC NULLS FIRST
-  );
-
-CREATE INDEX IF NOT EXISTS "idx_regulation_events_trigger_emotion_log_id"
-  ON "regulation_events" USING btree (
-    "trigger_emotion_log_id" uuid_ops ASC NULLS LAST
   );
 
 CREATE TABLE IF NOT EXISTS "contents" (
@@ -525,3 +504,19 @@ CREATE TABLE IF NOT EXISTS "star_transactions" (
 
 CREATE INDEX IF NOT EXISTS "idx_star_transactions_child_id_created_at"
   ON "star_transactions" USING btree ("child_id" uuid_ops ASC NULLS LAST, "created_at" timestamptz_ops DESC NULLS FIRST);
+
+CREATE TABLE IF NOT EXISTS "media_assets" (
+  "id" uuid PRIMARY KEY NOT NULL,
+  "file_name" text NOT NULL,
+  "storage_key" text NOT NULL,
+  "mime_type" text NOT NULL,
+  "size_bytes" integer NOT NULL,
+  "purpose" text NOT NULL,
+  "created_by" uuid NOT NULL,
+  "created_at" timestamp with time zone DEFAULT now() NOT NULL,
+  CONSTRAINT "media_assets_created_by_fkey"
+    FOREIGN KEY ("created_by") REFERENCES "users" ("id") ON DELETE cascade
+);
+
+CREATE INDEX IF NOT EXISTS "idx_media_assets_created_by"
+  ON "media_assets" USING btree ("created_by" uuid_ops ASC NULLS LAST);

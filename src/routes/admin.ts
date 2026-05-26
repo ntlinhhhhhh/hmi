@@ -1,5 +1,6 @@
 import { Elysia, t } from "elysia";
 import { createAdminPet } from "../usecases/admin/pets/create_admin_pet.ts";
+import { createMediaAsset } from "../usecases/admin/media/create_media_asset.ts";
 import { deleteAdminPet } from "../usecases/admin/pets/delete_admin_pet.ts";
 import { listAdminPets } from "../usecases/admin/pets/list_admin_pets.ts";
 import type { PetCatalogResult } from "../usecases/admin/pets/pet_catalog.ts";
@@ -116,6 +117,53 @@ function formatAdminUserDetail(detail: AdminUserDetailResult) {
 const protectedAdminRouter = new Elysia()
   .use(requireAuth)
   .use(requireAdmin)
+  .post(
+    "/admin/media-assets",
+    async ({ authUserId, body, set }) => {
+      const file = body.file;
+      if (!file) {
+        set.status = 400;
+        return {
+          error: {
+            type: "MISSING_FILE",
+            message: "File is required.",
+          },
+        };
+      }
+
+      const mediaAsset = await createMediaAsset({
+        adminId: authUserId,
+        fileName: file.name,
+        mimeType: file.type,
+        sizeBytes: file.size,
+        purpose: body.purpose,
+        buffer: new Uint8Array(await file.arrayBuffer()),
+      });
+
+      set.status = 201;
+      return {
+        message: "Media asset created and uploaded successfully.",
+        media_asset: {
+          id: mediaAsset.id,
+          file_name: mediaAsset.fileName,
+          storage_key: mediaAsset.storageKey,
+          mime_type: mediaAsset.mimeType,
+          size_bytes: mediaAsset.sizeBytes,
+          purpose: mediaAsset.purpose,
+          created_by: mediaAsset.createdBy,
+          url: mediaAsset.url,
+          created_at: mediaAsset.createdAt,
+        },
+      };
+    },
+    {
+      parse: "formdata",
+      body: t.Object({
+        file: t.File(),
+        purpose: t.String(),
+      }),
+    },
+  )
   .get(
     "/admin/pets",
     async ({ authUserId, query, set }) => {

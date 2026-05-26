@@ -111,14 +111,10 @@ Preferences là cấu hình để frontend điều chỉnh trải nghiệm học
 - `theme`
 - `music_track_id`
 - `music_volume` từ 0 đến 100
-- `voice_prompt_enabled`
 - `high_contrast_enabled`
 - `reduced_motion_enabled`
-- `brightness_level` từ 0 đến 100
-- `timeout_seconds` từ 1 đến 3600
-- `calming_story_enabled`
 
-Backend chỉ lưu và validate preferences. Frontend chịu trách nhiệm áp dụng vào UI, âm thanh, animation và time-out/calm mode.
+Backend chỉ lưu và validate preferences. Frontend chịu trách nhiệm áp dụng vào UI, âm thanh và animation.
 
 ## 8. Content và mở khóa
 
@@ -157,7 +153,7 @@ Quy tắc hiện tại:
 
 Frontend nên hiển thị số sao từ API (`total_stars`, `child_total_stars`) và refresh sau các thao tác mua/mở khóa.
 
-## 10. Emotion log, regulation và dashboard
+## 10. Emotion log, chatbot alerts và dashboard
 
 Frontend/AI gửi emotion log khi đã suy ra trạng thái cảm xúc. Body hiện gồm:
 
@@ -166,19 +162,17 @@ Frontend/AI gửi emotion log khi đã suy ra trạng thái cảm xúc. Body hi�
 - `duration_seconds`: tùy chọn, phải là số nguyên dương nếu gửi.
 - `confidence_score`, `ai_emotion_label`, `ai_confidence`, `ai_scores`, `ai_result`, `metadata`: tùy chọn, dùng để lưu kết quả model đã suy ra.
 
-Quy tắc alert hiện tại:
-
-- Backend xem `SAD`, `ANGRY`, `STRESSED`, `SCARED` có `duration_seconds > 60` là meltdown alert.
 - `GET /children/:childId/dashboard` trả dashboard theo `days`, mặc định 7 ngày, tối đa 90 ngày.
-- Dashboard hiện có learning summary, emotion counts và `meltdown_alerts`.
+- Dashboard hiện có learning summary, emotion counts và `chatbot_alerts`.
 
-Regulation/time-out vẫn do frontend/AI xử lý ở UI, nhưng backend đã có route để ghi và xem lịch sử:
+Chatbot warnings là event đã được frontend phân loại. Frontend gửi:
 
-- `POST /children/:childId/regulation-events`
-- `GET /children/:childId/regulation-events`
-- Action hợp lệ: `REDUCE_BRIGHTNESS`, `PAUSE_ANIMATION`, `PLAY_CALMING_AUDIO`, `VOICE_PROMPT`, `TIMEOUT`, `SHOW_STORY`, `RESUME`.
+- `POST /children/:childId/alerts` với body `{ "reason": "..." }`.
+- Backend lưu lịch sử và gửi push ngay cho device active của phụ huynh.
+- Push title là `HMI - Chatbot Warnings`; push body là `reason`.
+- `GET /children/:childId/alerts` trả lịch sử alert.
 
-Backend chưa có push notification hoặc device token.
+Report PDF: `GET /children/:childId/reports/summary.pdf`, mặc định 7 ngày gần nhất.
 
 ## 11. Pet store
 
@@ -211,8 +205,8 @@ Có thể thiết kế UI ở mức mock/prototype, nhưng khi build tích hợp
 - Auth: signup, signin, Google SSO, forgot password.
 - Account settings: xem/sửa profile, đổi mật khẩu, sign out.
 - Child profiles: danh sách, tạo, sửa nickname/avatar, xóa.
-- Child dashboard: sao, learning summary, emotion chart, meltdown alerts.
-- Preferences: high contrast, reduced motion, nhạc, voice prompt, brightness, timeout.
+- Child dashboard: sao, learning summary, emotion chart, chatbot alerts.
+- Preferences: high contrast, reduced motion, nhạc, theme.
 - Content browse: filter theo loại/difficulty, phân biệt locked/unlocked.
 - Pet store: list pet, mua pet, pet đã sở hữu, đổi tên.
 
@@ -221,9 +215,9 @@ Có thể thiết kế UI ở mức mock/prototype, nhưng khi build tích hợp
 - Chọn content đã unlock.
 - Render lecture/quiz/game theo content type.
 - Gửi lecture session khi trẻ hoàn thành hoặc thoát giữa chừng.
-- Áp dụng preferences vào màu sắc, motion, âm thanh, brightness và calm mode.
+- Áp dụng preferences vào màu sắc, motion và âm thanh.
 - Gửi emotion log khi frontend/AI đã có kết quả suy ra.
-- Gửi regulation event khi UI đã áp dụng calm/time-out action.
+- Gửi chatbot warning alert khi chatbot flow đã phân loại được warning.
 - Không gửi raw webcam frame về backend.
 
 **Admin app**

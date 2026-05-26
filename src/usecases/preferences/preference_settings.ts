@@ -5,24 +5,16 @@ export type PreferenceSettingsResponse = {
   theme?: string;
   music_track_id?: string | null;
   music_volume?: number;
-  voice_prompt_enabled?: boolean;
   high_contrast_enabled?: boolean;
   reduced_motion_enabled?: boolean;
-  brightness_level?: number;
-  timeout_seconds?: number;
-  calming_story_enabled?: boolean;
 };
 
 const allowedPreferenceKeys = new Set([
   "theme",
   "music_track_id",
   "music_volume",
-  "voice_prompt_enabled",
   "high_contrast_enabled",
   "reduced_motion_enabled",
-  "brightness_level",
-  "timeout_seconds",
-  "calming_story_enabled",
 ]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -139,14 +131,6 @@ export function normalizePreferenceSettingsInput<T extends string>(
     );
   }
 
-  if ("voice_prompt_enabled" in input && input.voice_prompt_enabled !== undefined) {
-    settings.voicePromptEnabled = normalizeBoolean(
-      input.voice_prompt_enabled,
-      errorType,
-      "voice_prompt_enabled",
-    );
-  }
-
   if ("high_contrast_enabled" in input && input.high_contrast_enabled !== undefined) {
     settings.highContrastEnabled = normalizeBoolean(
       input.high_contrast_enabled,
@@ -160,34 +144,6 @@ export function normalizePreferenceSettingsInput<T extends string>(
       input.reduced_motion_enabled,
       errorType,
       "reduced_motion_enabled",
-    );
-  }
-
-  if ("brightness_level" in input && input.brightness_level !== undefined) {
-    settings.brightnessLevel = normalizeIntegerRange(
-      input.brightness_level,
-      errorType,
-      "brightness_level",
-      0,
-      100,
-    );
-  }
-
-  if ("timeout_seconds" in input && input.timeout_seconds !== undefined) {
-    settings.timeoutSeconds = normalizeIntegerRange(
-      input.timeout_seconds,
-      errorType,
-      "timeout_seconds",
-      1,
-      3600,
-    );
-  }
-
-  if ("calming_story_enabled" in input && input.calming_story_enabled !== undefined) {
-    settings.calmingStoryEnabled = normalizeBoolean(
-      input.calming_story_enabled,
-      errorType,
-      "calming_story_enabled",
     );
   }
 
@@ -237,27 +193,11 @@ export function toPreferenceSettingsMetadata(
     0,
     100,
   );
-  const voicePromptEnabled = readBoolean(
-    getStoredValue(settings, "voicePromptEnabled", "voice_prompt_enabled"),
-  );
   const highContrastEnabled = readBoolean(
     getStoredValue(settings, "highContrastEnabled", "high_contrast_enabled"),
   );
   const reducedMotionEnabled = readBoolean(
     getStoredValue(settings, "reducedMotionEnabled", "reduced_motion_enabled"),
-  );
-  const brightnessLevel = readIntegerRange(
-    getStoredValue(settings, "brightnessLevel", "brightness_level"),
-    0,
-    100,
-  );
-  const timeoutSeconds = readIntegerRange(
-    getStoredValue(settings, "timeoutSeconds", "timeout_seconds"),
-    1,
-    3600,
-  );
-  const calmingStoryEnabled = readBoolean(
-    getStoredValue(settings, "calmingStoryEnabled", "calming_story_enabled"),
   );
 
   if (theme !== undefined) metadata.theme = theme;
@@ -268,12 +208,8 @@ export function toPreferenceSettingsMetadata(
     if (normalizedTrackId !== undefined) metadata.musicTrackId = normalizedTrackId;
   }
   if (musicVolume !== undefined) metadata.musicVolume = musicVolume;
-  if (voicePromptEnabled !== undefined) metadata.voicePromptEnabled = voicePromptEnabled;
   if (highContrastEnabled !== undefined) metadata.highContrastEnabled = highContrastEnabled;
   if (reducedMotionEnabled !== undefined) metadata.reducedMotionEnabled = reducedMotionEnabled;
-  if (brightnessLevel !== undefined) metadata.brightnessLevel = brightnessLevel;
-  if (timeoutSeconds !== undefined) metadata.timeoutSeconds = timeoutSeconds;
-  if (calmingStoryEnabled !== undefined) metadata.calmingStoryEnabled = calmingStoryEnabled;
 
   return metadata;
 }
@@ -291,19 +227,11 @@ export function toPreferenceSettingsResponse(
     response.music_track_id = metadata.musicTrackId;
   }
   if (metadata.musicVolume !== undefined) response.music_volume = metadata.musicVolume;
-  if (metadata.voicePromptEnabled !== undefined) {
-    response.voice_prompt_enabled = metadata.voicePromptEnabled;
-  }
   if (metadata.highContrastEnabled !== undefined) {
     response.high_contrast_enabled = metadata.highContrastEnabled;
   }
   if (metadata.reducedMotionEnabled !== undefined) {
     response.reduced_motion_enabled = metadata.reducedMotionEnabled;
-  }
-  if (metadata.brightnessLevel !== undefined) response.brightness_level = metadata.brightnessLevel;
-  if (metadata.timeoutSeconds !== undefined) response.timeout_seconds = metadata.timeoutSeconds;
-  if (metadata.calmingStoryEnabled !== undefined) {
-    response.calming_story_enabled = metadata.calmingStoryEnabled;
   }
 
   return response;
