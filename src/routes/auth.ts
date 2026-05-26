@@ -6,7 +6,6 @@ import {
   verifyPasswordResetCode,
   confirmPasswordReset,
 } from "../usecases/auth/password_reset.ts";
-import { confirmPasswordResetPhone } from "../usecases/auth/password_reset_phone.ts";
 import { signInParent } from "../usecases/auth/sign_in.ts";
 import { signOut } from "../usecases/auth/sign_out.ts";
 import { signUpParent } from "../usecases/auth/sign_up.ts";
@@ -225,7 +224,10 @@ const authRouter = withApiErrorHandler(new Elysia(), {
     async ({ body, set }) => {
       const result = await verifyPasswordResetCode(body.identifier, body.otp);
       set.status = 200;
-      return result;
+      return {
+        message: result.message,
+        reset_token: result.resetToken,
+      };
     },
     {
       body: t.Object({
@@ -249,20 +251,6 @@ const authRouter = withApiErrorHandler(new Elysia(), {
       body: t.Object({
         identifier: t.String(),
         reset_token: t.String(),
-        new_password: t.String(),
-      }),
-    },
-  )
-  .post(
-    "/auth/password-reset/confirm-phone",
-    async ({ body, set }) => {
-      const result = await confirmPasswordResetPhone(body.id_token, body.new_password);
-      set.status = 200;
-      return result;
-    },
-    {
-      body: t.Object({
-        id_token: t.String(),
         new_password: t.String(),
       }),
     },

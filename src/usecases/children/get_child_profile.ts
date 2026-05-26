@@ -30,6 +30,7 @@ export type ChildProfileDetail = {
   totalStars: number;
   createdAt: string;
   updatedAt: string;
+  webcamConsent: boolean;
   preferences: {
     isHighContrast: boolean;
     preferencesData: unknown;
@@ -108,6 +109,7 @@ export async function getChildProfile(input: GetChildProfileInput): Promise<Chil
       avatarUrl: child.avatarUrl ? await getFileUrl(child.avatarUrl) : null,
       birthYear: child.birthYear,
       totalStars: child.totalStars,
+      webcamConsent: !!child.webcamConsent,
       createdAt: child.createdAt,
       updatedAt: child.updatedAt,
       preferences: child.preferences

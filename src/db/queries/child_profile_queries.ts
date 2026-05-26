@@ -139,6 +139,27 @@ export async function updatePreferences(
   return updatedPref;
 }
 
+export async function getPreferencesByChildId(db: DbExecutor, childId: string) {
+  return await db.query.preferences.findFirst({
+    where: eq(preferences.childId, childId),
+  });
+}
+
+export async function updatePreferencesData(
+  db: DbExecutor,
+  childId: string,
+  data: Partial<Omit<typeof preferences.$inferInsert, "childId" | "createdAt">>,
+) {
+  const [updatedPref] = await db
+    .update(preferences)
+    .set({ ...data, updatedAt: sql`NOW()` })
+    .where(eq(preferences.childId, childId))
+    .returning();
+
+  if (!updatedPref) throw new Error(`[ERROR] Preferences for child ${childId} not found.`);
+  return updatedPref;
+}
+
 export async function isContentUnlocked(
   db: DbExecutor,
   childId: string,

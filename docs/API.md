@@ -49,6 +49,21 @@ Uploaded files are stored in S3-compatible object storage. In local development,
 
 Raw webcam frames are forbidden. Current backend endpoints store only derived emotion/game outcomes and must not accept raw webcam frame uploads.
 
+# External AI services:
+
+The HMI backend does not proxy or authenticate external AI services yet. Frontend can call them directly and send only derived results back to this backend.
+
+- Chatbot service default base URL: `http://localhost:8080`
+  - `GET /health`
+  - `POST /chat`
+- Emotion model service default base URL: `http://localhost:9000`
+  - `GET /health`
+  - `GET /model/info`
+  - `GET /model/download`
+  - `POST /model/predict`
+
+The emotion model currently returns labels `happy`, `sad`, `angry`, `fear`, and `neutral`. Backend emotion logs normalize them to `HAPPY`, `SAD`, `ANGRY`, `SCARED`, and `NEUTRAL`. The backend also keeps `STRESSED`, `CALM`, and `SURPRISED` for frontend/system-derived events.
+
 # Health Endpoints:
 
 ## Health check
@@ -172,7 +187,7 @@ POST /auth/google
 POST /auth/password-reset/request
 ```
 
-- Description: Requests a password reset code (OTP) sent via email.
+- Description: Requests a password reset code (OTP) sent via email for email identifiers or SMS for phone identifiers.
 - Auth required: No
 
 ### Request body (application/json):
@@ -182,6 +197,12 @@ POST /auth/password-reset/request
 ### Responses:
 
 - [200 OK] - Returns success message (to prevent user enumeration).
+- [500 Internal Server Error] - DELIVERY_FAILED when TextBee SMS delivery is not configured.
+- [502 Bad Gateway] - DELIVERY_FAILED when TextBee rejects or fails the delivery request.
+
+### SMS delivery configuration:
+
+Phone reset OTP delivery uses TextBee. Configure `TEXTBEE_API_KEY` and `TEXTBEE_DEVICE_ID`, keep the TextBee Android app online, and ensure the sender SIM can send SMS to the recipient.
 
 ## Password Reset Verify
 
@@ -191,7 +212,7 @@ POST /auth/password-reset/request
 POST /auth/password-reset/verify
 ```
 
-- Description: Verifies the OTP sent via email and returns a reset token.
+- Description: Verifies the OTP sent via email or SMS and returns a reset token.
 - Auth required: No
 
 ### Request body (application/json):
@@ -665,6 +686,286 @@ DELETE /children/:childId
 - [403 Forbidden] - Possible `type` values: ACCOUNT_BANNED, PARENT_NOT_ACTIVE, CHILD_NOT_OWNED.
 - [404 Not Found] - Possible `type` values: PARENT_NOT_FOUND, CHILD_NOT_FOUND.
 
+# Preference Endpoints:
+
+## Get child preferences
+
+- Endpoint:
+
+```text
+GET /children/:childId/preferences
+```
+
+- Description: Returns sensory/UI preferences for a child profile owned by the authenticated parent.
+- Auth required: Yes
+
+### Request parameters:
+
+- childId (string, Required): UUID of the child profile.
+
+### Responses:
+
+- [200 OK] - Preferences returned successfully.
+
+```json
+{
+  "preferences": {
+    "child_id": "323e4567-e89b-12d3-a456-426614174000",
+    "is_high_contrast": false,
+    "preferences": {
+      "theme": "default",
+      "music_volume": 40,
+      "high_contrast_enabled": false,
+      "reduced_motion_enabled": false
+    },
+    "created_at": "2026-05-21T07:14:22.170Z",
+    "updated_at": "2026-05-21T07:14:22.170Z"
+  }
+}
+```
+
+- [400 Bad Request] - Possible `type` values: INVALID_CHILD_ID.
+- [401 Unauthorized] - Possible `type` values: MISSING_SESSION_TOKEN, INVALID_SESSION.
+- [403 Forbidden] - Possible `type` values: ACCOUNT_BANNED, PARENT_NOT_ACTIVE, CHILD_NOT_OWNED.
+- [404 Not Found] - Possible `type` values: PARENT_NOT_FOUND, CHILD_NOT_FOUND, PREFERENCES_NOT_FOUND.
+
+## Update child preferences
+
+- Endpoint:
+
+```text
+PATCH /children/:childId/preferences
+```
+
+- Description: Updates typed child UI preferences for a child profile owned by the authenticated parent.
+- Auth required: Yes
+
+### Request parameters:
+
+- childId (string, Required): UUID of the child profile.
+
+### Request body (application/json):
+
+- is_high_contrast (boolean, Optional): Fast high-contrast flag.
+- preferences (object, Optional): Typed settings object. Allowed keys: `theme`, `music_track_id`, `music_volume`, `high_contrast_enabled`, `reduced_motion_enabled`.
+
+```json
+{
+  "is_high_contrast": true,
+  "preferences": {
+    "theme": "high_contrast",
+    "music_track_id": "calm-1",
+    "music_volume": 35,
+    "high_contrast_enabled": true,
+    "reduced_motion_enabled": true
+  }
+}
+```
+
+### Responses:
+
+- [200 OK] - Preferences updated successfully.
+- [400 Bad Request] - Possible `type` values: INVALID_JSON, INVALID_CHILD_ID, MISSING_UPDATE_FIELDS, INVALID_IS_HIGH_CONTRAST, INVALID_PREFERENCES.
+- [401 Unauthorized] - Possible `type` values: MISSING_SESSION_TOKEN, INVALID_SESSION.
+- [403 Forbidden] - Possible `type` values: ACCOUNT_BANNED, PARENT_NOT_ACTIVE, CHILD_NOT_OWNED.
+- [404 Not Found] - Possible `type` values: PARENT_NOT_FOUND, CHILD_NOT_FOUND, PREFERENCES_NOT_FOUND.
+
+# Learning Content Endpoints:
+
+## List child contents
+
+- Endpoint:
+
+```text
+GET /children/:childId/contents
+```
+
+- Description: Lists published, non-deleted learning content for a child, including unlock state and progress summary.
+- Auth required: Yes
+
+### Request parameters:
+
+- childId (string, Required): UUID of the child profile.
+
+### Query parameters:
+
+- type (string, Optional): `LECTURE`, `QUIZ`, or `GAME`.
+- difficulty_level (number, Optional): Integer from 1 to 3.
+- include_locked (boolean string, Optional): Defaults to `true`. Use `false` to return only unlocked content.
+
+### Responses:
+
+- [200 OK] - Contents returned successfully.
+
+```json
+{
+  "contents": [
+    {
+      "id": "723e4567-e89b-12d3-a456-426614174000",
+      "title": "Happy Faces",
+      "type": "LECTURE",
+      "status": "PUBLISHED",
+      "created_by": null,
+      "created_at": "2026-05-21T07:14:22.170Z",
+      "updated_at": "2026-05-21T07:14:22.170Z",
+      "deleted_at": null,
+      "difficulty_level": 1,
+      "unlock_star_cost": 0,
+      "is_unlocked": true,
+      "unlock": {
+        "id": "823e4567-e89b-12d3-a456-426614174000",
+        "unlocked_at": "2026-05-21T07:14:22.170Z"
+      },
+      "progress": {
+        "total_sessions": 3,
+        "completed_sessions": 2,
+        "stars_earned": 1,
+        "last_session_at": "2026-05-21T07:20:00.000Z"
+      },
+      "lecture": {
+        "media_url": "content/happy.png",
+        "description": "Recognize happy expressions.",
+        "difficulty_level": 1,
+        "is_default": true
+      },
+      "quiz": null,
+      "game": null
+    }
+  ]
+}
+```
+
+- For `GAME` content, `game.prompt_asset_type` can be `ICON`, `IMAGE`, `VIDEO`, or `null`; this supports the current frontend plan of level 1 icon, level 2 image, and level 3 video prompts. `game.prompt_asset_url` stores the optional prompt asset location.
+
+- [400 Bad Request] - Possible `type` values: INVALID_CHILD_ID, INVALID_CONTENT_TYPE, INVALID_DIFFICULTY_LEVEL, INVALID_INCLUDE_LOCKED.
+- [401 Unauthorized] - Possible `type` values: MISSING_SESSION_TOKEN, INVALID_SESSION.
+- [403 Forbidden] - Possible `type` values: ACCOUNT_BANNED, PARENT_NOT_ACTIVE, CHILD_NOT_OWNED.
+- [404 Not Found] - Possible `type` values: PARENT_NOT_FOUND, CHILD_NOT_FOUND.
+
+## Get content detail
+
+- Endpoint:
+
+```text
+GET /contents/:contentId
+```
+
+- Description: Returns a published, non-deleted content item. Optional `child_id` adds unlock state and progress for an owned child.
+- Auth required: Yes
+
+### Request parameters:
+
+- contentId (string, Required): UUID of the content.
+
+### Query parameters:
+
+- child_id (string, Optional): UUID of an owned child profile.
+
+### Responses:
+
+- [200 OK] - Content returned successfully. Response shape matches one item from `GET /children/:childId/contents`.
+- [400 Bad Request] - Possible `type` values: INVALID_CONTENT_ID, INVALID_CHILD_ID.
+- [401 Unauthorized] - Possible `type` values: MISSING_SESSION_TOKEN, INVALID_SESSION.
+- [403 Forbidden] - Possible `type` values: ACCOUNT_BANNED, PARENT_NOT_ACTIVE, CHILD_NOT_OWNED.
+- [404 Not Found] - Possible `type` values: USER_NOT_FOUND, PARENT_NOT_FOUND, CHILD_NOT_FOUND, CONTENT_NOT_FOUND.
+
+## Record lecture content session
+
+- Endpoint:
+
+```text
+POST /children/:childId/content-sessions
+```
+
+- Description: Records a lecture completion or abandonment for an unlocked published lecture. Quiz and AI game submission rules are still not implemented on this endpoint.
+- Auth required: Yes
+
+### Request parameters:
+
+- childId (string, Required): UUID of the child profile.
+
+### Request body (application/json):
+
+- content_id (string, Required): UUID of an unlocked published lecture.
+- idempotency_key (string, Optional): Retry key, 120 characters or fewer. Reusing the same key for the same content returns the existing session.
+- duration_seconds (number, Optional): Positive integer duration in seconds.
+- status (string, Optional): `COMPLETED` or `ABANDONED`. Defaults to `COMPLETED`.
+- started_at (string, Optional): ISO date.
+- completed_at (string, Optional): ISO date, not before `started_at`.
+- metadata (object, Optional): Extra derived client context. Must be a JSON object, no raw image/frame data.
+
+### Responses:
+
+- [201 Created] - Content session recorded successfully.
+
+```json
+{
+  "message": "Content session recorded successfully.",
+  "session": {
+    "id": "923e4567-e89b-12d3-a456-426614174000",
+    "child_id": "323e4567-e89b-12d3-a456-426614174000",
+    "content_id": "723e4567-e89b-12d3-a456-426614174000",
+    "unlock_content_id": "823e4567-e89b-12d3-a456-426614174000",
+    "duration_seconds": 120,
+    "is_correct": null,
+    "stars_earned": 1,
+    "status": "COMPLETED",
+    "idempotency_key": "lecture-723e4567-run-1",
+    "started_at": "2026-05-21T07:10:22.170Z",
+    "completed_at": "2026-05-21T07:12:22.170Z",
+    "metadata": null,
+    "created_at": "2026-05-21T07:12:22.170Z"
+  },
+  "stars_earned": 1,
+  "child_total_stars": 13
+}
+```
+
+- [400 Bad Request] - Possible `type` values: INVALID_JSON, INVALID_CHILD_ID, MISSING_CONTENT_ID, INVALID_CONTENT_ID, CONTENT_TYPE_NOT_SUPPORTED, INVALID_STATUS, INVALID_DURATION, INVALID_IDEMPOTENCY_KEY, INVALID_STARTED_AT, INVALID_COMPLETED_AT, INVALID_METADATA.
+- [401 Unauthorized] - Possible `type` values: MISSING_SESSION_TOKEN, INVALID_SESSION.
+- [403 Forbidden] - Possible `type` values: ACCOUNT_BANNED, PARENT_NOT_ACTIVE, CHILD_NOT_OWNED, CONTENT_LOCKED.
+- [404 Not Found] - Possible `type` values: PARENT_NOT_FOUND, CHILD_NOT_FOUND, CONTENT_NOT_FOUND.
+- [409 Conflict] - Possible `type` values: IDEMPOTENCY_KEY_CONFLICT.
+
+## Unlock child content
+
+- Endpoint:
+
+```text
+POST /children/:childId/contents/:contentId/unlock
+```
+
+- Description: Atomically spends a child's stars and creates an unlock record for published content.
+- Auth required: Yes
+
+### Request parameters:
+
+- childId (string, Required): UUID of the child profile.
+- contentId (string, Required): UUID of the content.
+
+### Responses:
+
+- [201 Created] - Content unlocked successfully.
+
+```json
+{
+  "message": "Content unlocked successfully.",
+  "child_total_stars": 4,
+  "unlock": {
+    "id": "823e4567-e89b-12d3-a456-426614174000",
+    "child_id": "323e4567-e89b-12d3-a456-426614174000",
+    "content_id": "723e4567-e89b-12d3-a456-426614174000",
+    "unlocked_at": "2026-05-21T07:14:22.170Z"
+  }
+}
+```
+
+- [400 Bad Request] - Possible `type` values: INVALID_CHILD_ID, INVALID_CONTENT_ID.
+- [401 Unauthorized] - Possible `type` values: MISSING_SESSION_TOKEN, INVALID_SESSION.
+- [403 Forbidden] - Possible `type` values: ACCOUNT_BANNED, PARENT_NOT_ACTIVE, CHILD_NOT_OWNED.
+- [404 Not Found] - Possible `type` values: PARENT_NOT_FOUND, CHILD_NOT_FOUND, CONTENT_NOT_FOUND.
+- [409 Conflict] - Possible `type` values: CONTENT_ALREADY_UNLOCKED, INSUFFICIENT_STARS.
+
 # Pet Store Endpoints:
 
 ## List active pets
@@ -843,6 +1144,233 @@ PATCH /children/:childId/pets/:childPetId
 - [403 Forbidden] - Possible `type` values: ACCOUNT_BANNED, PARENT_NOT_ACTIVE, CHILD_NOT_OWNED.
 - [404 Not Found] - Possible `type` values: PARENT_NOT_FOUND, CHILD_NOT_FOUND, CHILD_PET_NOT_FOUND.
 
+# Admin Pet Catalog Endpoints:
+
+Admin endpoints require an authenticated user with `role = ADMIN` and `status = ACTIVE`.
+
+## List admin pets
+
+- Endpoint:
+
+```text
+GET /admin/pets
+```
+
+- Description: Lists non-deleted pet catalog items, including hidden pets.
+- Auth required: Yes, admin only
+
+### Query parameters:
+
+- status (string, Optional): `ACTIVE` or `HIDDEN`.
+- search (string, Optional): Search by pet name or description, 120 characters or fewer.
+- limit (number, Optional): Integer from 1 to 100. Defaults to 50.
+
+### Responses:
+
+- [200 OK] - Pets returned successfully.
+- [400 Bad Request] - Possible `type` values: INVALID_STATUS, INVALID_SEARCH, INVALID_LIMIT.
+- [401 Unauthorized] - Possible `type` values: MISSING_SESSION_TOKEN, INVALID_SESSION.
+- [403 Forbidden] - Possible `type` values: ACCOUNT_BANNED, NOT_ADMIN.
+- [404 Not Found] - Possible `type` values: ADMIN_NOT_FOUND.
+
+## Create admin pet
+
+- Endpoint:
+
+```text
+POST /admin/pets
+```
+
+- Description: Creates a pet catalog item.
+- Auth required: Yes, admin only
+
+### Request body (application/json):
+
+- name (string, Required): Pet name, 80 characters or fewer.
+- description (string or null, Optional): Description, 500 characters or fewer.
+- image_url (string, Required): Image key or URL, 2048 characters or fewer.
+- animation_url (string or null, Optional): Animation key or URL, 2048 characters or fewer.
+- unlock_star_cost (number, Required): Non-negative integer.
+- status (string, Optional): `ACTIVE` or `HIDDEN`. Defaults to `ACTIVE`.
+
+### Responses:
+
+- [201 Created] - Pet catalog item created successfully.
+
+```json
+{
+  "message": "Pet catalog item created successfully.",
+  "pet": {
+    "id": "523e4567-e89b-12d3-a456-426614174000",
+    "name": "Calm Cat",
+    "description": "A calming companion.",
+    "image_url": "pets/calm-cat.png",
+    "animation_url": null,
+    "unlock_star_cost": 10,
+    "status": "ACTIVE",
+    "created_at": "2026-05-21T07:14:22.170Z",
+    "updated_at": "2026-05-21T07:14:22.170Z",
+    "deleted_at": null
+  }
+}
+```
+
+- [400 Bad Request] - Possible `type` values: INVALID_JSON, INVALID_NAME, INVALID_DESCRIPTION, INVALID_IMAGE_URL, INVALID_ANIMATION_URL, INVALID_UNLOCK_STAR_COST, INVALID_STATUS.
+- [401 Unauthorized] - Possible `type` values: MISSING_SESSION_TOKEN, INVALID_SESSION.
+- [403 Forbidden] - Possible `type` values: ACCOUNT_BANNED, NOT_ADMIN.
+- [404 Not Found] - Possible `type` values: ADMIN_NOT_FOUND.
+
+## Update admin pet
+
+- Endpoint:
+
+```text
+PATCH /admin/pets/:petId
+```
+
+- Description: Updates mutable pet catalog fields.
+- Auth required: Yes, admin only
+
+### Request parameters:
+
+- petId (string, Required): UUID of the pet catalog item.
+
+### Request body (application/json):
+
+- Any subset of `name`, `description`, `image_url`, `animation_url`, `unlock_star_cost`, and `status`.
+
+### Responses:
+
+- [200 OK] - Pet catalog item updated successfully.
+- [400 Bad Request] - Possible `type` values: INVALID_JSON, INVALID_PET_ID, MISSING_UPDATE_FIELDS, INVALID_NAME, INVALID_DESCRIPTION, INVALID_IMAGE_URL, INVALID_ANIMATION_URL, INVALID_UNLOCK_STAR_COST, INVALID_STATUS.
+- [401 Unauthorized] - Possible `type` values: MISSING_SESSION_TOKEN, INVALID_SESSION.
+- [403 Forbidden] - Possible `type` values: ACCOUNT_BANNED, NOT_ADMIN.
+- [404 Not Found] - Possible `type` values: ADMIN_NOT_FOUND, PET_NOT_FOUND.
+
+## Delete admin pet
+
+- Endpoint:
+
+```text
+DELETE /admin/pets/:petId
+```
+
+- Description: Soft-deletes a pet catalog item by setting `deleted_at` and hiding it from normal store flows. Child ownership history remains intact.
+- Auth required: Yes, admin only
+
+### Request parameters:
+
+- petId (string, Required): UUID of the pet catalog item.
+
+### Request body (application/json):
+
+- confirmation (string, Required): Must be exactly `DELETE`.
+
+### Responses:
+
+- [200 OK] - Pet catalog item deleted successfully.
+- [400 Bad Request] - Possible `type` values: INVALID_JSON, INVALID_PET_ID, MISSING_CONFIRMATION, INVALID_CONFIRMATION.
+- [401 Unauthorized] - Possible `type` values: MISSING_SESSION_TOKEN, INVALID_SESSION.
+- [403 Forbidden] - Possible `type` values: ACCOUNT_BANNED, NOT_ADMIN.
+- [404 Not Found] - Possible `type` values: ADMIN_NOT_FOUND, PET_NOT_FOUND.
+
+# Admin User Endpoints:
+
+## List admin users
+
+- Endpoint:
+
+```text
+GET /admin/users
+```
+
+- Description: Lists users for admin review with bounded cursor pagination.
+- Auth required: Yes, admin only
+
+### Query parameters:
+
+- role (string, Optional): `PARENT` or `ADMIN`.
+- status (string, Optional): `ACTIVE` or `BANNED`.
+- search (string, Optional): Search by email, phone number, or full name, 120 characters or fewer.
+- cursor (string, Optional): ISO `created_at` cursor returned as `next_cursor`.
+- limit (number, Optional): Integer from 1 to 100. Defaults to 50.
+
+### Responses:
+
+- [200 OK] - Users returned successfully.
+
+```json
+{
+  "users": [
+    {
+      "id": "123e4567-e89b-12d3-a456-426614174000",
+      "email": "parent@example.com",
+      "phone_number": "+84901234567",
+      "auth_provider": "LOCAL",
+      "full_name": "Nguyen Parent",
+      "role": "PARENT",
+      "status": "ACTIVE",
+      "last_login_at": "2026-05-21T07:14:22.170Z",
+      "created_at": "2026-05-21T07:14:22.170Z",
+      "updated_at": "2026-05-21T07:14:22.170Z"
+    }
+  ],
+  "next_cursor": null
+}
+```
+
+- [400 Bad Request] - Possible `type` values: INVALID_ROLE, INVALID_STATUS, INVALID_SEARCH, INVALID_CURSOR, INVALID_LIMIT.
+- [401 Unauthorized] - Possible `type` values: MISSING_SESSION_TOKEN, INVALID_SESSION.
+- [403 Forbidden] - Possible `type` values: ACCOUNT_BANNED, NOT_ADMIN.
+- [404 Not Found] - Possible `type` values: ADMIN_NOT_FOUND.
+
+## Get admin user detail
+
+- Endpoint:
+
+```text
+GET /admin/users/:userId
+```
+
+- Description: Returns one user plus child count and session summary. Password hashes and provider IDs are never returned.
+- Auth required: Yes, admin only
+
+### Request parameters:
+
+- userId (string, Required): UUID of the user.
+
+### Responses:
+
+- [200 OK] - User detail returned successfully.
+
+```json
+{
+  "user": {
+    "id": "123e4567-e89b-12d3-a456-426614174000",
+    "email": "parent@example.com",
+    "phone_number": "+84901234567",
+    "auth_provider": "LOCAL",
+    "full_name": "Nguyen Parent",
+    "role": "PARENT",
+    "status": "ACTIVE",
+    "last_login_at": "2026-05-21T07:14:22.170Z",
+    "created_at": "2026-05-21T07:14:22.170Z",
+    "updated_at": "2026-05-21T07:14:22.170Z"
+  },
+  "child_count": 1,
+  "sessions": {
+    "total_sessions": 3,
+    "active_sessions": 1,
+    "last_used_at": "2026-05-21T07:14:22.170Z"
+  }
+}
+```
+
+- [400 Bad Request] - Possible `type` values: INVALID_USER_ID.
+- [401 Unauthorized] - Possible `type` values: MISSING_SESSION_TOKEN, INVALID_SESSION.
+- [403 Forbidden] - Possible `type` values: ACCOUNT_BANNED, NOT_ADMIN.
+- [404 Not Found] - Possible `type` values: ADMIN_NOT_FOUND, USER_NOT_FOUND.
+
 # Tracking Endpoints:
 
 ## Record an emotion log
@@ -862,16 +1390,36 @@ POST /children/:childId/emotion-logs
 
 ### Request body (application/json):
 
-- emotion_value (string, Required): One of `HAPPY`, `SAD`, `ANGRY`, `STRESSED`, `CALM`, `NEUTRAL`, `SCARED`, `SURPRISED`.
+- emotion_value (string, Optional if `ai_result.emotion` is provided): One of `HAPPY`, `SAD`, `ANGRY`, `STRESSED`, `CALM`, `NEUTRAL`, `SCARED`, `SURPRISED`. Also accepts external model labels `happy`, `sad`, `angry`, `fear`, `neutral` and normalizes them to backend values.
 - trigger_source (string, Required): One of `AAC_BOARD`, `GAME`, `QUIZ`, `LECTURE`, `WEBCAM`, `SYSTEM`.
 - duration_seconds (number, Optional): Positive integer duration in seconds.
+- confidence_score (number, Optional): Normalized confidence from 0 to 1.
+- ai_emotion_label (string, Optional): Raw emotion label from the model. Accepted labels: `happy`, `sad`, `angry`, `fear`, `neutral`.
+- ai_confidence (number, Optional): Raw model confidence from 0 to 1.
+- ai_scores (object, Optional): Per-label model scores. Keys must be supported model labels and values must be numbers from 0 to 1.
+- ai_result (object, Optional): Direct model response shape with `emotion`, `confidence`, and `all_scores`. This is a convenience wrapper for the fields above.
+- metadata (object, Optional): Extra derived client context. Must be JSON object, no raw image/frame data.
 - Example:
 
 ```json
 {
-  "emotion_value": "HAPPY",
-  "trigger_source": "GAME",
-  "duration_seconds": 60
+  "trigger_source": "WEBCAM",
+  "duration_seconds": 60,
+  "ai_result": {
+    "emotion": "fear",
+    "confidence": 0.82,
+    "all_scores": {
+      "happy": 0.02,
+      "sad": 0.08,
+      "angry": 0.04,
+      "fear": 0.82,
+      "neutral": 0.04
+    }
+  },
+  "metadata": {
+    "source": "model_server",
+    "input_size": "64x64 grayscale"
+  }
 }
 ```
 
@@ -885,18 +1433,86 @@ POST /children/:childId/emotion-logs
   "log": {
     "id": "423e4567-e89b-12d3-a456-426614174000",
     "child_id": "323e4567-e89b-12d3-a456-426614174000",
-    "emotion_value": "HAPPY",
-    "trigger_source": "GAME",
+    "emotion_value": "SCARED",
+    "trigger_source": "WEBCAM",
     "duration_seconds": 60,
+    "confidence_score": 0.82,
+    "ai_emotion_label": "fear",
+    "ai_confidence": 0.82,
+    "ai_scores": {
+      "happy": 0.02,
+      "sad": 0.08,
+      "angry": 0.04,
+      "fear": 0.82,
+      "neutral": 0.04
+    },
+    "metadata": {
+      "source": "model_server",
+      "input_size": "64x64 grayscale"
+    },
     "created_at": "2026-05-21T07:14:22.170Z"
   }
 }
 ```
 
-- [400 Bad Request] - Possible `type` values: INVALID_JSON, INVALID_CHILD_ID, MISSING_EMOTION_VALUE, INVALID_EMOTION_VALUE, MISSING_TRIGGER_SOURCE, INVALID_TRIGGER_SOURCE, INVALID_DURATION.
+- [400 Bad Request] - Possible `type` values: INVALID_JSON, INVALID_CHILD_ID, MISSING_EMOTION_VALUE, INVALID_EMOTION_VALUE, EMOTION_AI_RESULT_MISMATCH, MISSING_TRIGGER_SOURCE, INVALID_TRIGGER_SOURCE, INVALID_DURATION, INVALID_CONFIDENCE_SCORE, INVALID_AI_RESULT, INVALID_AI_SCORES, INVALID_METADATA.
 - [401 Unauthorized] - Possible `type` values: MISSING_SESSION_TOKEN, INVALID_SESSION.
 - [403 Forbidden] - Possible `type` values: ACCOUNT_BANNED, CHILD_NOT_OWNED_BY_PARENT.
 - [404 Not Found] - Possible `type` values: CHILD_NOT_FOUND.
+
+## List emotion logs
+
+- Endpoint:
+
+```text
+GET /children/:childId/emotion-logs
+```
+
+- Description: Lists emotion logs for a child profile owned by the authenticated parent. Supports bounded cursor pagination by `created_at`.
+- Auth required: Yes
+
+### Request parameters:
+
+- childId (string, Required): UUID of the child profile.
+
+### Query parameters:
+
+- emotion (string, Optional): One of the supported backend emotion values or external model labels.
+- trigger_source (string, Optional): One of the supported trigger sources.
+- from (string, Optional): ISO date lower bound.
+- to (string, Optional): ISO date upper bound.
+- cursor (string, Optional): ISO `created_at` cursor returned as `next_cursor`.
+- limit (number, Optional): Integer from 1 to 100. Defaults to 50.
+
+### Responses:
+
+- [200 OK] - Emotion logs returned successfully.
+
+```json
+{
+  "logs": [
+    {
+      "id": "423e4567-e89b-12d3-a456-426614174000",
+      "child_id": "323e4567-e89b-12d3-a456-426614174000",
+      "emotion_value": "HAPPY",
+      "trigger_source": "GAME",
+      "duration_seconds": 60,
+      "confidence_score": null,
+      "ai_emotion_label": null,
+      "ai_confidence": null,
+      "ai_scores": null,
+      "metadata": null,
+      "created_at": "2026-05-21T07:14:22.170Z"
+    }
+  ],
+  "next_cursor": null
+}
+```
+
+- [400 Bad Request] - Possible `type` values: INVALID_CHILD_ID, INVALID_EMOTION_VALUE, INVALID_TRIGGER_SOURCE, INVALID_DATE_RANGE, INVALID_CURSOR, INVALID_LIMIT.
+- [401 Unauthorized] - Possible `type` values: MISSING_SESSION_TOKEN, INVALID_SESSION.
+- [403 Forbidden] - Possible `type` values: ACCOUNT_BANNED, PARENT_NOT_ACTIVE, CHILD_NOT_OWNED.
+- [404 Not Found] - Possible `type` values: PARENT_NOT_FOUND, CHILD_NOT_FOUND.
 
 ## Get child dashboard
 
@@ -944,15 +1560,19 @@ GET /children/:childId/dashboard
       "count": 5
     }
   ],
-  "meltdown_alerts": [
-    {
-      "id": "423e4567-e89b-12d3-a456-426614174000",
-      "emotion_value": "STRESSED",
-      "trigger_source": "WEBCAM",
-      "duration_seconds": 300,
-      "created_at": "2026-05-21T07:14:22.170Z"
-    }
-  ]
+  "chatbot_alerts": {
+    "total": 1,
+    "recent": [
+      {
+        "id": "a23e4567-e89b-12d3-a456-426614174000",
+        "reason": "The child sent an unusual chatbot message.",
+        "notification_status": "SENT",
+        "notification_sent_at": "2026-05-21T07:14:22.170Z",
+        "notification_error": null,
+        "created_at": "2026-05-21T07:14:22.170Z"
+      }
+    ]
+  }
 }
 ```
 
@@ -960,3 +1580,569 @@ GET /children/:childId/dashboard
 - [401 Unauthorized] - Possible `type` values: MISSING_SESSION_TOKEN, INVALID_SESSION.
 - [403 Forbidden] - Possible `type` values: ACCOUNT_BANNED, CHILD_NOT_OWNED_BY_PARENT.
 - [404 Not Found] - Possible `type` values: PARENT_NOT_FOUND, CHILD_NOT_FOUND.
+
+## Export child summary PDF
+
+- Endpoint:
+
+```text
+GET /children/:childId/reports/summary.pdf
+```
+
+- Description: Exports a human-friendly PDF report for the child. The default range is the last 7 days.
+- Auth required: Yes
+
+### Query parameters:
+
+- from (string, Optional): ISO date or timestamp lower bound.
+- to (string, Optional): ISO date or timestamp upper bound.
+- days (number, Optional): Integer from 1 to 90. Used when `from` is omitted. Defaults to 7.
+
+### Responses:
+
+- [200 OK] - `application/pdf` with `Content-Disposition: attachment`.
+- [400 Bad Request] - Possible `type` values: INVALID_FROM, INVALID_TO, INVALID_DAYS, INVALID_DATE_RANGE.
+- [401 Unauthorized] - Possible `type` values: MISSING_SESSION_TOKEN, INVALID_SESSION.
+- [403 Forbidden] - Possible `type` values: ACCOUNT_BANNED, PARENT_NOT_ACTIVE, CHILD_NOT_OWNED.
+- [404 Not Found] - Possible `type` values: PARENT_NOT_FOUND, CHILD_NOT_FOUND.
+
+The report includes daily activities, completed/quit counts, emotion summary, and chatbot warning alerts.
+
+## List child learning history (content sessions)
+
+- Endpoint:
+
+```text
+GET /children/:childId/content-sessions
+```
+
+- Description: Returns a paginated list of content sessions (learning history) for a child profile owned by the authenticated parent.
+- Auth required: Yes
+
+### Query parameters:
+
+- type (string, Optional): `LECTURE`, `QUIZ`, or `GAME`.
+- status (string, Optional): `COMPLETED` or `ABANDONED`.
+- from (string, Optional): ISO datetime start boundary.
+- to (string, Optional): ISO datetime end boundary.
+- limit (number, Optional): Integer from 1 to 100. Defaults to 20.
+- cursor (string, Optional): Created at timestamp for pagination.
+
+### Responses:
+
+- [200 OK] - Learning history returned successfully.
+
+```json
+{
+  "sessions": [
+    {
+      "id": "e23e4567-e89b-12d3-a456-426614174000",
+      "child_id": "323e4567-e89b-12d3-a456-426614174000",
+      "content_id": "c23e4567-e89b-12d3-a456-426614174000",
+      "unlock_content_id": "u23e4567-e89b-12d3-a456-426614174000",
+      "duration_seconds": 120,
+      "is_correct": true,
+      "stars_earned": 2,
+      "status": "COMPLETED",
+      "created_at": "2026-05-21T07:14:22.170Z"
+    }
+  ],
+  "next_cursor": null
+}
+```
+
+## List child star transactions
+
+- Endpoint:
+
+```text
+GET /children/:childId/star-transactions
+```
+
+- Description: Returns a paginated list of star transactions (ledger history) for a child profile owned by the authenticated parent.
+- Auth required: Yes
+
+### Query parameters:
+
+- limit (number, Optional): Integer from 1 to 100. Defaults to 20.
+- cursor (string, Optional): Created at timestamp for pagination.
+
+### Responses:
+
+- [200 OK] - Star transactions returned successfully.
+
+```json
+{
+  "transactions": [
+    {
+      "id": "t23e4567-e89b-12d3-a456-426614174000",
+      "child_id": "323e4567-e89b-12d3-a456-426614174000",
+      "amount": -10,
+      "type": "PET_PURCHASE",
+      "source_id": "523e4567-e89b-12d3-a456-426614174000",
+      "created_at": "2026-05-21T07:14:22.170Z"
+    }
+  ],
+  "next_cursor": null
+}
+```
+
+## Register a parent device for push notifications
+
+- Endpoint:
+
+```text
+POST /devices
+```
+
+- Description: Registers parent push notification device tokens.
+- Auth required: Yes
+
+### Request body (application/json):
+
+- platform (string, Required): `WEB`, `IOS`, or `ANDROID`.
+- push_token (string, Required): Unique push token.
+- app_instance_id (string, Optional): Unique app installation instance.
+
+```json
+{
+  "platform": "WEB",
+  "push_token": "fcm_token_xyz_123",
+  "app_instance_id": "inst_abc_567"
+}
+```
+
+### Responses:
+
+- [201 Created] - Device token registered.
+
+```json
+{
+  "id": "d23e4567-e89b-12d3-a456-426614174000",
+  "user_id": "123e4567-e89b-12d3-a456-426614174000",
+  "platform": "WEB",
+  "push_token": "fcm_token_xyz_123",
+  "app_instance_id": "inst_abc_567",
+  "is_active": true,
+  "created_at": "2026-05-21T07:14:22.170Z",
+  "updated_at": "2026-05-21T07:14:22.170Z"
+}
+```
+
+## Delete/deactivate a push device
+
+- Endpoint:
+
+```text
+DELETE /devices/:deviceId
+```
+
+- Description: Deregisters a device push token.
+- Auth required: Yes
+
+### Responses:
+
+- [200 OK] - Device deleted successfully.
+
+```json
+{
+  "message": "Device unregistered successfully."
+}
+```
+
+## Record chatbot warning alert
+
+- Endpoint:
+
+```text
+POST /children/:childId/alerts
+```
+
+- Description: Persists a frontend-classified chatbot warning event and immediately sends push notifications to active parent devices.
+- Auth required: Yes
+
+### Request body (application/json):
+
+- reason (string, Required): Warning reason shown as the push notification body. Maximum 1000 characters.
+
+```json
+{
+  "reason": "The child sent an unusual chatbot message."
+}
+```
+
+### Responses:
+
+- [201 Created] - Chatbot warning alert recorded successfully.
+
+```json
+{
+  "message": "Chatbot warning alert recorded successfully.",
+  "alert": {
+    "id": "a23e4567-e89b-12d3-a456-426614174000",
+    "child_id": "323e4567-e89b-12d3-a456-426614174000",
+    "reason": "The child sent an unusual chatbot message.",
+    "source": "CHATBOT",
+    "notification_status": "SENT",
+    "notification_sent_at": "2026-05-21T07:14:22.170Z",
+    "notification_error": null,
+    "created_at": "2026-05-21T07:14:22.170Z"
+  }
+}
+```
+
+- Push title: `HMI - Chatbot Warnings`
+- Push body: `reason`
+
+## List parent alerts for a child
+
+- Endpoint:
+
+```text
+GET /children/:childId/alerts
+```
+
+- Description: Lists persisted chatbot warning alerts for a child profile owned by the authenticated parent.
+- Auth required: Yes
+
+### Query parameters:
+
+- from (string, Optional): ISO datetime start boundary.
+- to (string, Optional): ISO datetime end boundary.
+- cursor (string, Optional): Pagination cursor.
+- limit (number, Optional): Integer from 1 to 100. Defaults to 20.
+
+### Responses:
+
+- [200 OK] - Alerts returned successfully.
+
+```json
+{
+  "alerts": [
+    {
+      "id": "a23e4567-e89b-12d3-a456-426614174000",
+      "child_id": "323e4567-e89b-12d3-a456-426614174000",
+      "reason": "The child sent an unusual chatbot message.",
+      "source": "CHATBOT",
+      "notification_status": "SENT",
+      "notification_sent_at": "2026-05-21T07:14:22.170Z",
+      "notification_error": null,
+      "created_at": "2026-05-21T07:14:22.170Z"
+    }
+  ],
+  "next_cursor": null
+}
+```
+
+## Upload admin media asset
+
+- Endpoint:
+
+```text
+POST /admin/media-assets
+```
+
+- Description: Uploads a media file to configured S3-compatible storage and stores metadata.
+- Auth required: Yes, admin only
+
+### Request body (multipart/form-data):
+
+- file (file, Required): Non-empty file, maximum 50 MB.
+- purpose (string, Required): Caller-defined media purpose, for example `CONTENT_MEDIA` or `PET_IMAGE`.
+
+### Responses:
+
+- [201 Created] - Media asset uploaded successfully.
+
+```json
+{
+  "message": "Media asset created and uploaded successfully.",
+  "media_asset": {
+    "id": "m23e4567-e89b-12d3-a456-426614174000",
+    "file_name": "lesson.mp4",
+    "storage_key": "media-assets/m23e4567-e89b-12d3-a456-426614174000-lesson.mp4",
+    "mime_type": "video/mp4",
+    "size_bytes": 1024000,
+    "purpose": "CONTENT_MEDIA",
+    "created_by": "123e4567-e89b-12d3-a456-426614174000",
+    "url": "https://storage.example.com/presigned-url",
+    "created_at": "2026-05-21T07:14:22.170Z"
+  }
+}
+```
+
+- [400 Bad Request] - Possible `type` values: MISSING_FILE, INVALID_PURPOSE.
+- [401 Unauthorized] - Possible `type` values: MISSING_SESSION_TOKEN, INVALID_SESSION.
+- [403 Forbidden] - Possible `type` values: ACCOUNT_BANNED, NOT_ADMIN.
+- [413 Payload Too Large] - Possible `type` values: FILE_TOO_LARGE.
+- [502 Bad Gateway] - Possible `type` values: STORAGE_ERROR.
+
+## List all content including drafts (Admin)
+
+- Endpoint:
+
+```text
+GET /admin/contents
+```
+
+- Description: Lists all content in the catalog including drafts and soft-deleted entries.
+- Auth required: Yes (Admin role required)
+
+### Query parameters:
+
+- type (string, Optional): `LECTURE`, `QUIZ`, or `GAME`.
+- status (string, Optional): `DRAFT` or `PUBLISHED`.
+- search (string, Optional): Search query matching titles.
+- limit (number, Optional): Integer from 1 to 100. Defaults to 20.
+- cursor (string, Optional): Pagination cursor.
+
+### Responses:
+
+- [200 OK] - Content catalog returned successfully.
+
+```json
+{
+  "contents": [
+    {
+      "id": "c23e4567-e89b-12d3-a456-426614174000",
+      "title": "Emotion Lecture 1",
+      "type": "LECTURE",
+      "status": "PUBLISHED",
+      "created_by": "admin-uuid",
+      "lecture": {
+        "media_url": "https://example.com/media.mp4",
+        "description": "Intro to Happy emotion"
+      }
+    }
+  ],
+  "next_cursor": null
+}
+```
+
+## Create lecture, quiz, or game (Admin)
+
+- Endpoint:
+
+```text
+POST /admin/contents
+```
+
+- Description: Creates a new learning content item with type-specific details.
+- Auth required: Yes (Admin role required)
+
+### Request body (application/json):
+
+- title (string, Required)
+- type (string, Required): `LECTURE`, `QUIZ`, or `GAME`.
+- status (string, Optional): `DRAFT` or `PUBLISHED`. Defaults to `DRAFT`.
+- lecture/quiz/game (object, Required depending on type): Type payload.
+
+```json
+{
+  "title": "Quiz - Identifying Anger",
+  "type": "QUIZ",
+  "status": "PUBLISHED",
+  "quiz": {
+    "mediaUrl": "https://example.com/quiz-anger.jpg",
+    "description": "Which face shows anger?",
+    "difficultyLevel": 1,
+    "answerEmotions": ["HAPPY", "ANGRY", "SAD"],
+    "correctEmotion": "ANGRY"
+  }
+}
+```
+
+### Responses:
+
+- [201 Created] - Content successfully created.
+
+```json
+{
+  "message": "Content created successfully.",
+  "content": {
+    "id": "q23e4567-e89b-12d3-a456-426614174000",
+    "title": "Quiz - Identifying Anger",
+    "type": "QUIZ",
+    "status": "PUBLISHED",
+    "quiz": {
+      "media_url": "https://example.com/quiz-anger.jpg",
+      "description": "Which face shows anger?",
+      "difficulty_level": 1,
+      "answer_emotions": ["HAPPY", "ANGRY", "SAD"],
+      "correct_emotion": "ANGRY"
+    }
+  }
+}
+```
+
+## Read any content detail (Admin)
+
+- Endpoint:
+
+```text
+GET /admin/contents/:contentId
+```
+
+- Description: Retrieves details of any content, regardless of status.
+- Auth required: Yes (Admin role required)
+
+### Responses:
+
+- [200 OK] - Details retrieved successfully.
+
+## Update content and type-specific data (Admin)
+
+- Endpoint:
+
+```text
+PATCH /admin/contents/:contentId
+```
+
+- Description: Updates general content fields or type-specific fields.
+- Auth required: Yes (Admin role required)
+
+### Request body (application/json):
+
+- title (string, Optional)
+- status (string, Optional)
+- lecture/quiz/game (object, Optional): partial updates.
+
+```json
+{
+  "title": "Updated Quiz Title",
+  "quiz": {
+    "difficultyLevel": 2
+  }
+}
+```
+
+### Responses:
+
+- [200 OK] - Content updated successfully.
+
+## Soft-delete content (Admin)
+
+- Endpoint:
+
+```text
+DELETE /admin/contents/:contentId
+```
+
+- Description: Soft-deletes content. Hides it from children but preserves logs.
+- Auth required: Yes (Admin role required)
+
+### Request body (application/json):
+
+- confirmation (string, Required): Must be exactly `DELETE`.
+
+```json
+{
+  "confirmation": "DELETE"
+}
+```
+
+### Responses:
+
+- [200 OK] - Content soft-deleted successfully.
+
+## Update user status or role (Admin)
+
+- Endpoint:
+
+```text
+PATCH /admin/users/:userId
+```
+
+- Description: Updates a user's status (`ACTIVE`, `BANNED`) or role (`PARENT`, `ADMIN`). Prevents self-modification.
+- Auth required: Yes (Admin role required)
+
+### Request body (application/json):
+
+- status (string, Optional): `ACTIVE` or `BANNED`.
+- role (string, Optional): `PARENT` or `ADMIN`.
+
+```json
+{
+  "status": "BANNED"
+}
+```
+
+### Responses:
+
+- [200 OK] - User updated successfully.
+
+## Hard-delete user and cascaded data (Admin)
+
+- Endpoint:
+
+```text
+DELETE /admin/users/:userId
+```
+
+- Description: Hard-deletes a user and cascades deletion to children, logs, and sessions. Prevents self-deletion.
+- Auth required: Yes (Admin role required)
+
+### Request body (application/json):
+
+- confirmation (string, Required): Must be exactly `DELETE`.
+- reason (string, Optional)
+
+```json
+{
+  "confirmation": "DELETE",
+  "reason": "GDPR deletion request"
+}
+```
+
+### Responses:
+
+- [200 OK] - User deleted successfully.
+
+## Return aggregate system analytics (Admin)
+
+- Endpoint:
+
+```text
+GET /admin/analytics
+```
+
+- Description: Returns system aggregate metrics. Excludes child-identifiable logs.
+- Auth required: Yes (Admin role required)
+
+### Query parameters:
+
+- from (string, Optional): ISO datetime start boundary.
+- to (string, Optional): ISO datetime end boundary.
+
+### Responses:
+
+- [200 OK] - Analytics data returned successfully.
+
+```json
+{
+  "users": {
+    "total": 100,
+    "parents": 95,
+    "admins": 5,
+    "banned": 2,
+    "active": 98
+  },
+  "children": {
+    "total": 120
+  },
+  "learning": {
+    "totalSessions": 500,
+    "completedSessions": 400,
+    "completionRate": 80,
+    "totalQuizzes": 250,
+    "correctQuizzes": 180,
+    "quizSuccessRate": 72
+  },
+  "emotions": {
+    "HAPPY": 320,
+    "SAD": 45,
+    "ANGRY": 12
+  },
+  "alertsCount": 8
+}
+```

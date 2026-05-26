@@ -28,18 +28,47 @@ Current implemented API surface:
 - `GET /health`
 - `POST /auth/signup`
 - `POST /auth/signin`
+- `POST /auth/google`
+- `POST /auth/password-reset/request`
+- `POST /auth/password-reset/verify`
+- `POST /auth/password-reset/confirm`
 - `GET /me`
+- `PATCH /me`
+- `PATCH /me/password`
 - `DELETE /auth/session`
 - `POST /children`
 - `GET /children`
+- `GET /children/:childId`
+- `PATCH /children/:childId`
+- `DELETE /children/:childId`
+- `GET /children/:childId/preferences`
+- `PATCH /children/:childId/preferences`
+- `GET /children/:childId/contents`
+- `GET /contents/:contentId`
+- `POST /children/:childId/content-sessions`
+- `POST /children/:childId/contents/:contentId/unlock`
 - `POST /children/:childId/emotion-logs`
+- `GET /children/:childId/emotion-logs`
+- `POST /children/:childId/alerts`
+- `GET /children/:childId/alerts`
 - `GET /children/:childId/dashboard`
+- `GET /children/:childId/reports/summary.pdf`
+- `GET /pets`
+- `GET /children/:childId/pets`
+- `POST /children/:childId/pets`
+- `PATCH /children/:childId/pets/:childPetId`
+- `GET /admin/pets`
+- `POST /admin/pets`
+- `PATCH /admin/pets/:petId`
+- `DELETE /admin/pets/:petId`
+- `GET /admin/users`
+- `GET /admin/users/:userId`
 
 ## Assumptions And Resolved Ambiguities
 
 1. Children do not authenticate directly. A parent signs in, selects a child profile, and the child-facing UI submits events under that parent session.
 2. Admin users use the same `users` table with `role = ADMIN`. Admin account creation is an internal provisioning flow unless an existing admin creates another admin.
-3. AI inference and computer vision run outside this backend. The frontend calls those AI services directly and sends only derived events, scores, durations, and outcomes to this backend. Raw webcam frame upload/storage is forbidden.
+3. AI inference, computer vision, and chatbot responses run outside this backend. The frontend calls those AI services directly and sends only derived events, scores, durations, model labels, and outcomes to this backend. Raw webcam frame upload/storage is forbidden.
 4. `game_sessions` in the SRS maps to the implemented `content_sessions` table.
 5. `unlock_content_id` on `content_sessions` means a child can only record progress for content that is already unlocked for that child.
 6. Password reset must avoid account enumeration. Even though the SRS says to report unknown email/phone, production behavior should return a generic response for reset requests.
@@ -53,11 +82,11 @@ Current implemented API surface:
 14. Google SSO links to an existing local account when Google returns the same verified email address.
 15. A child can earn stars for a content item only once. Later completions can be recorded for progress/history but must award zero additional stars. Fixed rewards are lecture completion = 1 star, correct quiz answer = 2 stars, and successful AI game = 3 stars.
 16. Birth year is immutable from the frontend after child profile creation. Difficulty is not recomputed from birth-year changes.
-17. Regulation and time-out actions are AI-triggered only. Parents can view results/history but must not manually trigger those interventions through normal product flows.
+17. UI intervention flows are no longer backend requirements. They must not be exposed as backend APIs.
 18. Reports should be human-friendly and readable, using summaries and interpretation rather than raw event dumps as the primary presentation.
 19. Admin analytics are aggregate only. Admins must not see child-specific identifiable logs, statistics, or reports.
 20. Quiz media, answer emotion list, and correct answer are admin-defined. The child UI renders answer emotions as emojis.
-21. Negative emotion alert/regulation threshold is exactly negative emotion duration greater than 60 seconds. No additional stress/meltdown threshold is defined.
+21. Chatbot warning alerts are frontend-classified events. The backend stores them, sends parent push notifications immediately, and returns alert history.
 
 ## Role And Permission Model
 
@@ -99,7 +128,7 @@ Allowed child-facing actions through parent session:
 - Answer quizzes.
 - Play AI emotion imitation games.
 - Earn stars.
-- Submit derived emotion logs through the child-facing frontend. Regulation/time-out is triggered by the AI flow, not manually by parents.
+- Submit derived emotion logs and frontend-classified chatbot warning alerts through the child-facing frontend.
 
 ### Admin
 
@@ -118,12 +147,18 @@ Admin restrictions:
 
 ### External AI Services
 
-The frontend calls AI/computer-vision services directly. This backend does not call those models and does not know model topology, model versions, or inference service credentials.
+The frontend calls AI/computer-vision/chatbot services directly. This backend does not proxy those services and does not store inference credentials.
 
 Can access:
 
 - No direct backend API access by default.
 - The child-facing frontend can submit derived AI outcomes to backend endpoints under the authenticated parent session.
+
+Known external service contracts:
+
+- Chatbot service "Bạn thỏ": base URL `http://localhost:8080`, `GET /health`, `POST /chat`.
+- Emotion model service: base URL `http://localhost:9000`, `GET /health`, `GET /model/info`, `GET /model/download`, `POST /model/predict`.
+- Model labels are `happy`, `sad`, `angry`, `fear`, and `neutral`; backend normalizes these to `HAPPY`, `SAD`, `ANGRY`, `SCARED`, and `NEUTRAL`.
 
 ## Core Entities And Relationships
 
@@ -198,7 +233,7 @@ Relationships:
 
 ### `preferences`
 
-Sensory regulation and UI settings for a child.
+Child UI settings.
 
 Existing fields:
 
@@ -210,12 +245,8 @@ Required typed settings:
 - `theme`
 - `music_track_id`
 - `music_volume`
-- `voice_prompt_enabled`
 - `high_contrast_enabled`
 - `reduced_motion_enabled`
-- `brightness_level`
-- `timeout_seconds`
-- `calming_story_enabled`
 
 ### `contents`
 
@@ -274,11 +305,13 @@ Required fields:
 - `difficulty_level`
 - `is_default`
 - `unlock_star_cost`
-
-Missing required fields:
-
-- **TODO** `detection_confidence_threshold`.
+- `prompt_asset_type`: `ICON`, `IMAGE`, or `VIDEO`, matching the current frontend plan for levels 1, 2, and 3.
+- `prompt_asset_url`
 - Fixed reward policy: successful AI game awards 3 stars on the first rewarded completion.
+
+Notes:
+
+- No global detection confidence threshold is currently defined by the AI service contract. Later session logic should store `confidence` and `all_scores`, but game success should be based on an explicit product rule rather than an implicit backend threshold.
 
 ### `unlock_content`
 
@@ -302,14 +335,20 @@ Key fields:
 - `is_correct`
 - `stars_earned`
 - `ai_match_score`
+- `selected_emotion`
+- `idempotency_key`
+- `started_at`
+- `completed_at`
+- `ai_detected_emotion`
+- `ai_confidence`
+- `ai_scores`
+- `metadata`
 - `status`: `COMPLETED`, `ABANDONED`
 
-Missing required fields:
+Implemented safeguards:
 
-- **Inferred** `selected_emotion` for quiz attempts.
-- **Inferred** `idempotency_key` to prevent duplicate rewards from retrying clients.
-- **Inferred** `started_at` and `completed_at` for accurate usage time.
-- Unique rewarded completion per `(child_id, unlock_content_id)`: repeated completions must record `stars_earned = 0`.
+- Unique rewarded completion per `(child_id, unlock_content_id)`: repeated completions record `stars_earned = 0`.
+- Optional idempotency key unique per child for safe client retries.
 
 ### `emotion_logs`
 
@@ -320,18 +359,36 @@ Key fields:
 - `emotion_value`
 - `trigger_source`
 - `duration_seconds`
+- `confidence_score`
+- `ai_emotion_label`
+- `ai_confidence`
+- `ai_scores`
+- `metadata`
 - `created_at`
 
 Required values:
 
 - Emotion: `HAPPY`, `SAD`, `ANGRY`, `STRESSED`, `CALM`, `NEUTRAL`, `SCARED`, `SURPRISED`.
+- Accepted external model labels: `happy`, `sad`, `angry`, `fear`, `neutral`.
 - Trigger source: `AAC_BOARD`, `GAME`, `QUIZ`, `LECTURE`, `WEBCAM`, `SYSTEM`.
 
 Missing required fields:
 
-- **Inferred** `confidence_score`.
 - **Inferred** `session_id` or `content_session_id`.
-- **Inferred** `metadata` for rage-click count, face detection state, or frontend observation context.
+
+### `alerts`
+
+Chatbot warning alert history for a child.
+
+Key fields:
+
+- `child_id`
+- `reason`
+- `source`: `CHATBOT`
+- `notification_status`: `PENDING`, `SENT`, `FAILED`, `NO_DEVICES`
+- `notification_sent_at`
+- `notification_error`
+- `created_at`
 
 ### `pets`
 
@@ -363,7 +420,6 @@ Key fields:
 The following entities are required for complete implementation:
 
 - `device_tokens`: parent device push tokens with platform, token hash, active status, and timestamps.
-- `regulation_events`: records of automatic calming interventions, actions taken, duration, and source emotion event.
 - `star_transactions`: immutable ledger for star earning/spending, reason, related entity, and balance after transaction.
 - `media_assets`: uploaded media metadata, storage key, MIME type, size, owner, and status.
 - `quiz_options`: answer options for quizzes if not stored as typed JSON.
@@ -391,7 +447,7 @@ The following entities are required for complete implementation:
 - Postconditions: Parent account and active session exist.
 - Related API endpoints: `POST /auth/signup`, `POST /auth/google`.
 - Priority: P0.
-- Current status: Partial. Email/password signup with immediate session exists. Google registration/linking is missing.
+- Current status: Implemented for email/password signup and Google ID-token registration/linking.
 
 ### UC-AUTH-02: Sign In
 
@@ -412,7 +468,7 @@ The following entities are required for complete implementation:
 - Postconditions: Active session exists.
 - Related API endpoints: `POST /auth/signin`, `POST /auth/google`, `GET /me`.
 - Priority: P0.
-- Current status: Partial. Local email/phone identifier sign-in exists. Google SSO is missing.
+- Current status: Implemented for local email/phone sign-in and Google ID-token sign-in.
 
 ### UC-AUTH-03: Sign Out
 
@@ -449,7 +505,7 @@ The following entities are required for complete implementation:
 - Postconditions: New password is active.
 - Related API endpoints: `POST /auth/password-reset/request`, `POST /auth/password-reset/verify`, `POST /auth/password-reset/confirm`.
 - Priority: P0.
-- Current status: Partial. Table exists. Routes/use cases are missing.
+- Current status: Partial. Routes/use cases and email/SMS OTP delivery exist; rate limiting and attempt counter hardening are still missing.
 
 ### UC-AUTH-05: View And Update Own Account
 
@@ -506,7 +562,7 @@ The following entities are required for complete implementation:
 - Postconditions: Client can enter child-specific flows.
 - Related API endpoints: `GET /children`, `GET /children/:childId`.
 - Priority: P0.
-- Current status: Partial. List exists. Detail endpoint is missing.
+- Current status: Implemented.
 
 ### UC-CHILD-03: Update Or Delete Child Profile
 
@@ -524,7 +580,7 @@ The following entities are required for complete implementation:
 - Postconditions: Profile is updated or removed. Content difficulty is not recomputed from later birth-year changes.
 - Related API endpoints: `PATCH /children/:childId`, `DELETE /children/:childId`.
 - Priority: P1.
-- Current status: Partial. Query helpers exist. Routes/use cases are missing.
+- Current status: Implemented.
 
 ### UC-PREF-01: Configure Sensory Preferences
 
@@ -532,17 +588,17 @@ The following entities are required for complete implementation:
 - Preconditions: Parent owns the child profile.
 - Main flow:
   1. Parent opens child preferences.
-  2. Parent sets high contrast, reduced motion, calming music, voice prompts, volume, brightness, theme, and timeout duration.
+  2. Parent sets theme, music track, music volume, high contrast, and reduced motion.
   3. Backend validates preference schema.
   4. Backend persists preferences.
-  5. Child-facing UI uses preferences during learning and regulation.
+  5. Child-facing UI uses preferences during learning.
 - Alternative/error flows:
   - Invalid values return `400`.
   - Child not owned by parent returns `403`.
 - Postconditions: Child-specific sensory configuration is stored.
 - Related API endpoints: `GET /children/:childId/preferences`, `PATCH /children/:childId/preferences`.
 - Priority: P0.
-- Current status: Partial. Table exists and create profile initializes defaults. Routes/use cases are missing.
+- Current status: Implemented. Read/update routes validate a typed preferences object and preserve child ownership.
 
 ### UC-CONTENT-01: Browse Available Content
 
@@ -559,7 +615,7 @@ The following entities are required for complete implementation:
 - Postconditions: Child can choose an unlocked learning item.
 - Related API endpoints: `GET /children/:childId/contents`, `GET /contents/:contentId`.
 - Priority: P0.
-- Current status: Partial. Query helper exists. Routes/use cases are missing.
+- Current status: Implemented. Child-scoped listing and published content detail include unlock state and progress when `child_id` is provided.
 
 ### UC-LEARN-01: Complete Lecture
 
@@ -578,7 +634,7 @@ The following entities are required for complete implementation:
 - Postconditions: Progress is recorded. Stars increase only for the first rewarded completion of the lecture.
 - Related API endpoints: `GET /children/:childId/contents`, `POST /children/:childId/content-sessions`.
 - Priority: P0.
-- Current status: Partial. Table/query helper exists. Route/use case is missing.
+- Current status: Implemented for lecture `COMPLETED` and `ABANDONED` sessions with idempotency and first-reward enforcement.
 
 ### UC-LEARN-02: Answer Quiz
 
@@ -598,7 +654,7 @@ The following entities are required for complete implementation:
 - Postconditions: Attempt is stored for dashboard statistics.
 - Related API endpoints: `GET /children/:childId/contents`, `POST /children/:childId/content-sessions`.
 - Priority: P0.
-- Current status: Missing. Current schema lacks answer options and no session route exists.
+- Current status: Missing. The content session route currently does not implement quiz answer validation or quiz rewards.
 
 ### UC-LEARN-03: Play AI Emotion Imitation Game
 
@@ -607,18 +663,18 @@ The following entities are required for complete implementation:
 - Main flow:
   1. Client displays target emotion.
   2. Child imitates expression during time limit.
-  3. Frontend calls the external AI service and receives match score/confidence.
+  3. Frontend calls the external model service and receives predicted emotion, confidence, and all label scores.
   4. Client submits the derived AI game result.
-  5. Backend validates score range, configured detection confidence threshold, unlock state, and first-reward rule.
-  6. Backend records session and awards stars if the result passes the configured AI confidence threshold and this child has not already earned stars for the game.
+  5. Backend validates target/predicted emotion values, score ranges, unlock state, idempotency, and first-reward rule.
+  6. Backend records session and awards stars if the result satisfies the chosen game success rule and this child has not already earned stars for the game.
 - Alternative/error flows:
   - No face detected: client prompts child and may submit abandoned/failed attempt.
-  - Negative emotion detected: trigger sensory regulation use cases.
+  - Chatbot concern detected in a separate frontend chatbot flow: frontend submits a chatbot warning alert.
   - Invalid score payload returns `400`; backend does not call or authenticate the AI service directly.
 - Postconditions: AI attempt is recorded. Stars increase only for the first rewarded completion of the game.
-- Related API endpoints: `POST /children/:childId/content-sessions`, `POST /children/:childId/emotion-logs`, `POST /children/:childId/regulation-events`.
+- Related API endpoints: `POST /children/:childId/content-sessions`, `POST /children/:childId/emotion-logs`, `POST /children/:childId/alerts`.
 - Priority: P1.
-- Current status: Partial. Database fields exist. Route/use case is missing; backend should store derived AI results only.
+- Current status: Partial. Database placeholders now exist for selected emotion, idempotency, AI labels/scores, and metadata. The content session route does not implement AI game result submission yet; backend should store derived AI results only.
 
 ### UC-ECON-01: Unlock Paid Content With Stars
 
@@ -637,7 +693,7 @@ The following entities are required for complete implementation:
 - Postconditions: Content is available to child.
 - Related API endpoints: `POST /children/:childId/contents/:contentId/unlock`.
 - Priority: P1.
-- Current status: Partial. Query helper exists but lacks route and balance-safety use case.
+- Current status: Partial. Route and atomic balance-safe unlock use case exist; immutable star ledger and idempotency keys are still missing.
 
 ### UC-ECON-02: Buy And Manage Virtual Pet
 
@@ -657,7 +713,7 @@ The following entities are required for complete implementation:
 - Postconditions: Child owns pet and star balance is reduced.
 - Related API endpoints: `GET /pets`, `GET /children/:childId/pets`, `POST /children/:childId/pets`, `PATCH /children/:childId/pets/:childPetId`.
 - Priority: P1.
-- Current status: Partial. Tables/query helpers exist. Routes/use cases are missing.
+- Current status: Partial. Parent store/ownership routes and admin pet catalog CRUD exist; immutable star ledger/idempotent purchase keys are still missing.
 
 ### UC-TRACK-01: Record Emotion Or Behavior Event
 
@@ -665,72 +721,34 @@ The following entities are required for complete implementation:
 - Preconditions: Parent owns child. Client has consent and permission to observe the relevant source.
 - Main flow:
   1. Client receives or derives emotion/behavior from webcam, game, quiz, lecture, AAC board, or system event.
-  2. Client sends emotion, trigger source, duration, confidence, and metadata.
+  2. Client sends emotion, trigger source, duration, confidence, AI model label/scores, and metadata.
   3. Backend validates ownership and enums.
   4. Backend stores `emotion_logs`.
-  5. Backend stores the event for dashboards/reports. AI-triggered regulation decisions remain outside this backend unless a later integration is approved.
+  5. Backend stores the event for dashboards/reports.
 - Alternative/error flows:
   - Invalid emotion/source returns `400`.
   - Child not owned returns `403`.
-  - Prolonged negative emotion can trigger parent notification after the notification policy is implemented.
 - Postconditions: Event is available for dashboard and reports.
 - Related API endpoints: `POST /children/:childId/emotion-logs`, `GET /children/:childId/emotion-logs`.
 - Priority: P0.
-- Current status: Partial. Create route exists. List route and extended metadata are missing.
+- Current status: Implemented for create/list with optional AI label, confidence, all scores, and metadata. Raw frames remain forbidden.
 
-### UC-REG-01: Automatic Sensory Regulation
-
-- Actors: External AI flow, child-facing client.
-- Preconditions: Client detects stress, crying, angry expression, rage clicks, or absence from seat. Child preferences exist.
-- Main flow:
-  1. External AI flow identifies a negative emotion lasting more than 60 seconds.
-  2. Client records the derived emotion log.
-  3. Client applies sensory preferences: reduce brightness, pause animation, lower/stops background audio, play calming music/voice, or switch theme.
-  4. Client records a regulation event with action details when the route exists.
-  5. If child returns to calm state, client resumes lesson.
-- Alternative/error flows:
-  - Negative emotion persists longer than 60 seconds: send parent push notification.
-  - Preference config missing: use safe defaults.
-- Postconditions: Intervention is auditable and child UI is adjusted.
-- Related API endpoints: `POST /children/:childId/emotion-logs`, `POST /children/:childId/regulation-events`, `GET /children/:childId/preferences`.
-- Priority: P0.
-- Current status: Missing except raw emotion log creation.
-
-### UC-REG-02: Time-Out Mode
-
-- Actors: External AI flow, child-facing client.
-- Preconditions: AI determines a negative emotion has lasted more than 60 seconds.
-- Main flow:
-  1. Client enters minimal UI mode.
-  2. Client displays calm countdown or calming story.
-  3. Client pauses active lesson/game session.
-  4. Backend records timeout regulation event.
-  5. Client exits timeout after countdown or after calm signal.
-- Alternative/error flows:
-  - Child stays distressed: extend timeout according to policy and notify parent.
-  - Active content session is abandoned if timeout exceeds allowed duration.
-- Postconditions: Timeout history is stored and visible to parent.
-- Related API endpoints: `POST /children/:childId/regulation-events`, `POST /children/:childId/content-sessions`.
-- Priority: P1.
-- Current status: Missing.
-
-### UC-NOTIF-01: Notify Parent About Prolonged Negative Emotion
+### UC-NOTIF-01: Notify Parent About Chatbot Warning
 
 - Actors: System, Parent.
-- Preconditions: Parent has registered a device token. Negative emotion lasts more than 60 seconds.
+- Preconditions: Frontend has classified a chatbot warning event and parent may have registered device tokens.
 - Main flow:
-  1. Backend identifies eligible alert from emotion log/regulation event.
-  2. Backend creates notification event.
+  1. Frontend sends the warning reason string for the selected child.
+  2. Backend creates a persisted alert history record.
   3. Backend sends push notification to active parent devices.
   4. Backend records delivery status.
 - Alternative/error flows:
   - No device token: store alert for dashboard only.
-  - Push provider failure: retry with backoff and retain failure status.
-  - Duplicate alert within cooldown: suppress duplicate notification.
+  - Push provider failure: retain failure status and error for history.
 - Postconditions: Parent is alerted or alert is retained for later view.
-- Related API endpoints: `POST /devices`, `DELETE /devices/:deviceId`, `GET /children/:childId/alerts`.
+- Related API endpoints: `POST /devices`, `DELETE /devices/:deviceId`, `POST /children/:childId/alerts`, `GET /children/:childId/alerts`.
 - Priority: P1.
-- Current status: Missing.
+- Current status: Implemented.
 
 ### UC-DASH-01: View Child Dashboard
 
@@ -738,7 +756,7 @@ The following entities are required for complete implementation:
 - Preconditions: Parent owns child.
 - Main flow:
   1. Parent opens dashboard for a child.
-  2. Backend aggregates learning sessions, correct quiz rate, total stars, emotion counts, meltdown alerts, and usage time.
+  2. Backend aggregates learning sessions, correct quiz rate, total stars, emotion counts, and chatbot warning alerts.
   3. Backend returns data for week/month ranges.
   4. Client displays charts and empty states.
 - Alternative/error flows:
@@ -756,7 +774,7 @@ The following entities are required for complete implementation:
 - Preconditions: Parent owns child.
 - Main flow:
   1. Parent selects date range and report type.
-  2. Backend aggregates child profile, learning stats, emotion chart data, meltdown events, and usage summary.
+  2. Backend aggregates child profile, daily activity sessions, completion/quit counts, emotion summary, and chatbot warning alerts.
   3. Backend generates a human-friendly PDF with readable summaries, charts, and interpretation before raw logs.
   4. Client downloads PDF.
 - Alternative/error flows:
@@ -766,7 +784,7 @@ The following entities are required for complete implementation:
 - Postconditions: Parent receives report artifact.
 - Related API endpoints: `GET /children/:childId/reports/summary.pdf`.
 - Priority: P1.
-- Current status: Missing.
+- Current status: Implemented with a synchronous PDF export and default last-7-days range.
 
 ### UC-ADMIN-01: Manage Learning Content
 
@@ -785,7 +803,7 @@ The following entities are required for complete implementation:
 - Postconditions: Published, non-deleted content is available for children or default unlock.
 - Related API endpoints: `GET /admin/contents`, `POST /admin/contents`, `GET /admin/contents/:contentId`, `PATCH /admin/contents/:contentId`, `DELETE /admin/contents/:contentId`, `POST /admin/media-assets`.
 - Priority: P0.
-- Current status: Partial. Tables exist. Routes/use cases are missing.
+- Current status: Implemented.
 
 ### UC-ADMIN-02: Manage Pet Catalog
 
@@ -802,7 +820,7 @@ The following entities are required for complete implementation:
 - Postconditions: Pet store reflects admin changes.
 - Related API endpoints: `GET /admin/pets`, `POST /admin/pets`, `PATCH /admin/pets/:petId`, `DELETE /admin/pets/:petId`.
 - Priority: P1.
-- Current status: Partial. Tables exist. Routes/use cases are missing.
+- Current status: Implemented for list/create/update/soft-delete of non-deleted pet catalog items.
 
 ### UC-ADMIN-03: Manage Users
 
@@ -820,7 +838,7 @@ The following entities are required for complete implementation:
 - Postconditions: User status or data is changed.
 - Related API endpoints: `GET /admin/users`, `GET /admin/users/:userId`, `PATCH /admin/users/:userId`, `DELETE /admin/users/:userId`.
 - Priority: P1.
-- Current status: Missing.
+- Current status: Implemented.
 
 ### UC-ADMIN-04: View System Analytics
 
@@ -836,7 +854,7 @@ The following entities are required for complete implementation:
 - Postconditions: Admin can monitor system adoption and content effectiveness.
 - Related API endpoints: `GET /admin/analytics`.
 - Priority: P2.
-- Current status: Missing.
+- Current status: Implemented.
 
 ## API Endpoint Catalog
 
@@ -865,20 +883,20 @@ Standard error body:
 
 ### Authentication And Account
 
-| Method   | Path                           | Purpose                                                                           | Auth/Authz                      | Request                                                                   | Response                                                         | Error responses                                                                                                   | Validation                                                                                                                                | Related use cases      | Status                          |
-| -------- | ------------------------------ | --------------------------------------------------------------------------------- | ------------------------------- | ------------------------------------------------------------------------- | ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- | ------------------------------- |
-| `POST`   | `/auth/signup`                 | Create parent account with local credentials and immediate session.               | Public.                         | Body: `email`, `password`, optional `phone_number`, optional `full_name`. | `201` with `message`, `user`, and `session` including raw token. | `400` invalid JSON/email/password/phone/full name. `409` email or phone taken.                                    | Email format; password length >= 8; phone 8-15 digits with optional `+`; full name <= 120 chars.                                          | UC-AUTH-01             | Implemented for email/password. |
-| `POST`   | `/auth/signin`                 | Authenticate local parent/admin using email or phone identifier.                  | Public.                         | Body: `identifier`, `password`.                                           | `200` with `message`, `user`, and `session` including raw token. | `400` missing identifier/password. `401` invalid credentials or unsupported provider. `403` banned account.       | Identifier non-empty; password non-empty.                                                                                                 | UC-AUTH-02             | Implemented for local auth.     |
-| `POST`   | `/auth/google`                 | Authenticate or register using Google SSO, linking verified-email local accounts. | Public.                         | Body: `id_token` or OAuth `authorization_code`, optional `redirect_uri`.  | `200` or `201` with `user` and `session`.                        | `400` invalid request. `401` invalid Google credential. `403` banned account. `409` provider conflict.            | Verify issuer, audience, expiry, email verification, provider ID uniqueness; link same verified email to local account.                   | UC-AUTH-01, UC-AUTH-02 | Missing                         |
-| `GET`    | `/me`                          | Return current user and session metadata.                                         | Authenticated parent/admin.     | None.                                                                     | `200` with `session` and `user`.                                 | `401` missing/invalid session. `403` banned account.                                                              | Session token must be valid and unexpired.                                                                                                | UC-AUTH-02, UC-AUTH-05 | Implemented                     |
-| `PATCH`  | `/me`                          | Update account profile fields.                                                    | Authenticated parent/admin.     | Body: optional `email`, `phone_number`, `full_name`.                      | `200` with updated `user`.                                       | `400` invalid fields. `401` invalid session. `403` banned account. `409` email/phone taken.                       | Email/phone formats; full name <= 120 chars; at least one field. Email/phone changes should require reauth or verification in production. | UC-AUTH-05             | Implemented                     |
-| `PATCH`  | `/me/password`                 | Change password while signed in.                                                  | Authenticated local/phone user. | Body: `current_password`, `new_password`.                                 | `200` message.                                                   | `400` weak new password. `401` wrong current password. `403` banned account or provider account without password. | Current password required; new password >= 8 chars and different from current.                                                            | UC-AUTH-05             | Implemented                     |
-| `DELETE` | `/auth/session`                | Sign out current session.                                                         | Authenticated parent/admin.     | None.                                                                     | `200` message.                                                   | `401` missing/invalid session. `403` banned account.                                                              | Session token must exist.                                                                                                                 | UC-AUTH-03             | Implemented                     |
-| `POST`   | `/auth/password-reset/request` | Request OTP/link for forgotten password.                                          | Public.                         | Body: `identifier` email or phone.                                        | `200` generic message.                                           | `400` invalid identifier. `429` too many requests.                                                                | Do not reveal whether account exists; rate-limit by identifier/IP; only local/phone accounts.                                             | UC-AUTH-04             | Missing                         |
-| `POST`   | `/auth/password-reset/verify`  | Verify OTP and issue reset token.                                                 | Public.                         | Body: `identifier`, `otp`.                                                | `200` with short-lived `reset_token`.                            | `400` invalid/expired OTP. `429` too many attempts.                                                               | OTP format; expiry; attempt count.                                                                                                        | UC-AUTH-04             | Missing                         |
-| `POST`   | `/auth/password-reset/confirm` | Set new password using reset token.                                               | Public.                         | Body: `reset_token`, `new_password`.                                      | `200` message.                                                   | `400` invalid token/weak password. `401` expired token.                                                           | Token single-use; new password >= 8 chars; invalidate used code and optionally sessions.                                                  | UC-AUTH-04             | Missing                         |
-| `POST`   | `/devices`                     | Register a parent device for push notifications.                                  | Authenticated parent.           | Body: `platform`, `push_token`, optional `app_instance_id`.               | `201` with `device`.                                             | `400` invalid platform/token. `401` invalid session. `403` banned account. `409` token conflict.                  | Platform enum: `WEB`, `IOS`, `ANDROID`; token non-empty; one active record per token.                                                     | UC-NOTIF-01            | Missing, inferred               |
-| `DELETE` | `/devices/:deviceId`           | Delete/deactivate a push device.                                                  | Authenticated owner parent.     | Path: `deviceId`.                                                         | `200` message.                                                   | `400` invalid UUID. `401` invalid session. `403` not owner. `404` not found.                                      | Device must belong to authenticated parent.                                                                                               | UC-NOTIF-01            | Missing, inferred               |
+| Method   | Path                           | Purpose                                                                           | Auth/Authz                      | Request                                                                   | Response                                                         | Error responses                                                                                                   | Validation                                                                                                                                | Related use cases      | Status                           |
+| -------- | ------------------------------ | --------------------------------------------------------------------------------- | ------------------------------- | ------------------------------------------------------------------------- | ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- | -------------------------------- |
+| `POST`   | `/auth/signup`                 | Create parent account with local credentials and immediate session.               | Public.                         | Body: `email`, `password`, optional `phone_number`, optional `full_name`. | `201` with `message`, `user`, and `session` including raw token. | `400` invalid JSON/email/password/phone/full name. `409` email or phone taken.                                    | Email format; password length >= 8; phone 8-15 digits with optional `+`; full name <= 120 chars.                                          | UC-AUTH-01             | Implemented for email/password.  |
+| `POST`   | `/auth/signin`                 | Authenticate local parent/admin using email or phone identifier.                  | Public.                         | Body: `identifier`, `password`.                                           | `200` with `message`, `user`, and `session` including raw token. | `400` missing identifier/password. `401` invalid credentials or unsupported provider. `403` banned account.       | Identifier non-empty; password non-empty.                                                                                                 | UC-AUTH-02             | Implemented for local auth.      |
+| `POST`   | `/auth/google`                 | Authenticate or register using Google SSO, linking verified-email local accounts. | Public.                         | Body: `id_token`.                                                         | `200` with `user` and `session`.                                 | `400` missing token. `401` invalid Google credential. `500` missing Google client config.                         | Verify issuer, audience, expiry, email, and provider ID through Google ID-token verification.                                             | UC-AUTH-01, UC-AUTH-02 | Implemented                      |
+| `GET`    | `/me`                          | Return current user and session metadata.                                         | Authenticated parent/admin.     | None.                                                                     | `200` with `session` and `user`.                                 | `401` missing/invalid session. `403` banned account.                                                              | Session token must be valid and unexpired.                                                                                                | UC-AUTH-02, UC-AUTH-05 | Implemented                      |
+| `PATCH`  | `/me`                          | Update account profile fields.                                                    | Authenticated parent/admin.     | Body: optional `email`, `phone_number`, `full_name`.                      | `200` with updated `user`.                                       | `400` invalid fields. `401` invalid session. `403` banned account. `409` email/phone taken.                       | Email/phone formats; full name <= 120 chars; at least one field. Email/phone changes should require reauth or verification in production. | UC-AUTH-05             | Implemented                      |
+| `PATCH`  | `/me/password`                 | Change password while signed in.                                                  | Authenticated local/phone user. | Body: `current_password`, `new_password`.                                 | `200` message.                                                   | `400` weak new password. `401` wrong current password. `403` banned account or provider account without password. | Current password required; new password >= 8 chars and different from current.                                                            | UC-AUTH-05             | Implemented                      |
+| `DELETE` | `/auth/session`                | Sign out current session.                                                         | Authenticated parent/admin.     | None.                                                                     | `200` message.                                                   | `401` missing/invalid session. `403` banned account.                                                              | Session token must exist.                                                                                                                 | UC-AUTH-03             | Implemented                      |
+| `POST`   | `/auth/password-reset/request` | Request OTP/link for forgotten password through email or TextBee SMS.             | Public.                         | Body: `identifier` email or phone.                                        | `200` generic message.                                           | `400` invalid identifier. `500` TextBee config missing. `502` TextBee provider failure. `429` too many requests.  | Do not reveal whether account exists; rate-limit by identifier/IP; only local/phone accounts; TextBee device must be online for SMS.      | UC-AUTH-04             | Partial: missing rate limit.     |
+| `POST`   | `/auth/password-reset/verify`  | Verify OTP and issue reset token.                                                 | Public.                         | Body: `identifier`, `otp`.                                                | `200` with short-lived `reset_token`.                            | `400` invalid/expired OTP. `429` too many attempts.                                                               | OTP format; expiry; attempt count.                                                                                                        | UC-AUTH-04             | Partial: attempt hardening TODO. |
+| `POST`   | `/auth/password-reset/confirm` | Set new password using reset token.                                               | Public.                         | Body: `reset_token`, `new_password`.                                      | `200` message.                                                   | `400` invalid token/weak password. `401` expired token.                                                           | Token single-use; new password >= 8 chars; invalidate used code and optionally sessions.                                                  | UC-AUTH-04             | Implemented                      |
+| `POST`   | `/devices`                     | Register a parent device for push notifications.                                  | Authenticated parent.           | Body: `platform`, `push_token`, optional `app_instance_id`.               | `201` with `device`.                                             | `400` invalid platform/token. `401` invalid session. `403` banned account. `409` token conflict.                  | Platform enum: `WEB`, `IOS`, `ANDROID`; token non-empty; one active record per token.                                                     | UC-NOTIF-01            | Implemented                      |
+| `DELETE` | `/devices/:deviceId`           | Delete/deactivate a push device.                                                  | Authenticated owner parent.     | Path: `deviceId`.                                                         | `200` message.                                                   | `400` invalid UUID. `401` invalid session. `403` not owner. `404` not found.                                      | Device must belong to authenticated parent.                                                                                               | UC-NOTIF-01            | Implemented                      |
 
 ### Child Profiles And Preferences
 
@@ -889,18 +907,18 @@ Standard error body:
 | `GET`    | `/children/:childId`             | Return one child profile.                      | Authenticated owning parent. | Path: `childId`.                                                         | `200` with `child`, preferences, and star balance.           | `400` invalid UUID. `401` invalid session. `403` child not owned. `404` child not found.                                                                                  | UUID format and ownership.                                                                                                                                         | UC-CHILD-02           | Implemented |
 | `PATCH`  | `/children/:childId`             | Update child profile.                          | Authenticated owning parent. | Path: `childId`. Multipart body with optional `nickname`, `avatar` file. | `200` with updated `child`; `avatar_url` is presigned.       | `400` invalid body/UUID/avatar. `401` invalid session. `403` child not owned. `404` child not found. `413` avatar too large. `502` S3 upload failed.                      | Same mutable field limits as create; at least one field. `birth_year` is create-only from frontend.                                                                | UC-CHILD-03           | Implemented |
 | `DELETE` | `/children/:childId`             | Delete child profile and dependent data.       | Authenticated owning parent. | Path: `childId`. Body: `confirmation` exactly `DELETE`.                  | `200` message.                                               | `400` missing confirmation/invalid UUID. `401` invalid session. `403` child not owned. `404` child not found.                                                             | Require explicit confirmation. Cascade deletes logs, preferences, sessions, unlocks, pets.                                                                         | UC-CHILD-03           | Implemented |
-| `GET`    | `/children/:childId/preferences` | Read sensory preferences.                      | Authenticated owning parent. | Path: `childId`.                                                         | `200` with `preferences`.                                    | `400` invalid UUID. `401` invalid session. `403` child not owned. `404` child/preference not found.                                                                       | Ownership required.                                                                                                                                                | UC-PREF-01, UC-REG-01 | Missing     |
-| `PATCH`  | `/children/:childId/preferences` | Update sensory preferences.                    | Authenticated owning parent. | Body: optional `is_high_contrast`, typed `preferences` object.           | `200` with updated `preferences`.                            | `400` invalid preference schema. `401` invalid session. `403` child not owned. `404` child not found.                                                                     | Validate known keys: theme, volume 0-100, brightness 0-100, timeout seconds positive, booleans for reduced motion/voice prompts. Reject unsupported unsafe values. | UC-PREF-01, UC-REG-01 | Missing     |
+| `GET`    | `/children/:childId/preferences` | Read child UI preferences.                     | Authenticated owning parent. | Path: `childId`.                                                         | `200` with `preferences`.                                    | `400` invalid UUID. `401` invalid session. `403` child not owned. `404` child/preference not found.                                                                       | Ownership required.                                                                                                                        | UC-PREF-01 | Implemented |
+| `PATCH`  | `/children/:childId/preferences` | Update child UI preferences.                   | Authenticated owning parent. | Body: optional `is_high_contrast`, typed `preferences` object.           | `200` with updated `preferences`.                            | `400` invalid preference schema. `401` invalid session. `403` child not owned. `404` child not found.                                                                     | Validate known keys: theme, music track, music volume 0-100, high contrast, and reduced motion. Reject unsupported unsafe values.          | UC-PREF-01 | Implemented |
 
 ### Learning Content And Sessions
 
-| Method | Path                                            | Purpose                                                                        | Auth/Authz                                                        | Request                                                                                                                                                | Response                                                                                                                              | Error responses                                                                                                                                                          | Validation                                                                                                                                                                                                                                | Related use cases                                    | Status  |
-| ------ | ----------------------------------------------- | ------------------------------------------------------------------------------ | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- | ------- |
-| `GET`  | `/children/:childId/contents`                   | List content available to a child, including locked/unlocked state.            | Authenticated owning parent.                                      | Path: `childId`. Query: optional `type`, `difficulty_level`, `include_locked`, `status` for admins only.                                               | `200` with `contents[]`. Each item includes base content, type-specific payload, `is_unlocked`, `unlock_star_cost`, progress summary. | `400` invalid filters. `401` invalid session. `403` child not owned. `404` child not found.                                                                              | Type enum; difficulty 1-3; only published, non-deleted content for parents/children.                                                                                                                                                      | UC-CONTENT-01, UC-LEARN-01, UC-LEARN-02, UC-LEARN-03 | Missing |
-| `GET`  | `/contents/:contentId`                          | Read content detail.                                                           | Authenticated parent for published content; admin for any status. | Path: `contentId`. Optional query `child_id` to include unlock state.                                                                                  | `200` with content detail.                                                                                                            | `400` invalid UUID. `401` invalid session. `403` locked/not authorized. `404` not found.                                                                                 | Parent can only read published content and must own `child_id` if provided.                                                                                                                                                               | UC-CONTENT-01                                        | Missing |
-| `POST` | `/children/:childId/content-sessions`           | Record lecture completion, quiz attempt, AI game result, or abandoned session. | Authenticated owning parent.                                      | Body: `content_id`, optional `idempotency_key`, `duration_seconds`, `status`, optional `selected_emotion`, `is_correct`, `ai_match_score`, `metadata`. | `201` with `session`, `stars_earned`, `child_total_stars`.                                                                            | `400` invalid fields. `401` invalid session. `403` child not owned or content locked. `404` child/content not found. `409` duplicate idempotency key or reward conflict. | Content must be published, non-deleted, and unlocked; duration positive if present; status `COMPLETED` or `ABANDONED`; score 0-100. Fixed rewards: lecture 1, correct quiz 2, successful AI game 3; award at most once per child/content. | UC-LEARN-01, UC-LEARN-02, UC-LEARN-03, UC-REG-02     | Missing |
-| `GET`  | `/children/:childId/content-sessions`           | List learning history.                                                         | Authenticated owning parent.                                      | Query: optional `type`, `from`, `to`, `limit`, `cursor`.                                                                                               | `200` with paginated `sessions[]`.                                                                                                    | `400` invalid range/pagination. `401` invalid session. `403` child not owned. `404` child not found.                                                                     | Limit capped, for example <= 100. Date range valid.                                                                                                                                                                                       | UC-DASH-01                                           | Missing |
-| `POST` | `/children/:childId/contents/:contentId/unlock` | Spend stars to unlock paid content.                                            | Authenticated owning parent.                                      | Path: `childId`, `contentId`. Optional body: `idempotency_key`.                                                                                        | `201` with `unlock`, `child_total_stars`, `star_transaction`.                                                                         | `400` invalid UUID. `401` invalid session. `403` child not owned. `404` child/content not found. `409` insufficient stars or already unlocked.                           | Content must be published; cost >= 0; atomic update must ensure `total_stars >= cost`.                                                                                                                                                    | UC-ECON-01                                           | Missing |
+| Method | Path                                            | Purpose                                                             | Auth/Authz                   | Request                                                                                                                 | Response                                                                                                                              | Error responses                                                                                                                                                                       | Validation                                                                                                                                                                                              | Related use cases                                    | Status                |
+| ------ | ----------------------------------------------- | ------------------------------------------------------------------- | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- | --------------------- |
+| `GET`  | `/children/:childId/contents`                   | List content available to a child, including locked/unlocked state. | Authenticated owning parent. | Path: `childId`. Query: optional `type`, `difficulty_level`, `include_locked`.                                          | `200` with `contents[]`. Each item includes base content, type-specific payload, `is_unlocked`, `unlock_star_cost`, progress summary. | `400` invalid filters. `401` invalid session. `403` child not owned. `404` child not found.                                                                                           | Type enum; difficulty 1-3; only published, non-deleted content for parents/children.                                                                                                                    | UC-CONTENT-01, UC-LEARN-01, UC-LEARN-02, UC-LEARN-03 | Implemented           |
+| `GET`  | `/contents/:contentId`                          | Read published content detail.                                      | Authenticated parent/admin.  | Path: `contentId`. Optional query `child_id` to include unlock state.                                                   | `200` with content detail.                                                                                                            | `400` invalid UUID. `401` invalid session. `403` not authorized. `404` not found.                                                                                                     | Protected users can read published content; `child_id` requires parent ownership.                                                                                                                       | UC-CONTENT-01                                        | Implemented           |
+| `POST` | `/children/:childId/content-sessions`           | Record lecture completion or abandoned lecture session.             | Authenticated owning parent. | Body: `content_id`, optional `idempotency_key`, `duration_seconds`, `status`, `started_at`, `completed_at`, `metadata`. | `201` with `session`, `stars_earned`, `child_total_stars`.                                                                            | `400` invalid fields or non-lecture content. `401` invalid session. `403` child not owned or content locked. `404` child/content not found. `409` duplicate idempotency key conflict. | Content must be a published, non-deleted, unlocked lecture; duration positive if present; status `COMPLETED` or `ABANDONED`; lecture completion reward is 1 star; award at most once per child/content. | UC-LEARN-01                                          | Partial: lecture only |
+| `GET`  | `/children/:childId/content-sessions`           | List learning history.                                              | Authenticated owning parent. | Query: optional `type`, `from`, `to`, `limit`, `cursor`.                                                                | `200` with paginated `sessions[]`.                                                                                                    | `400` invalid range/pagination. `401` invalid session. `403` child not owned. `404` child not found.                                                                                  | Limit capped, for example <= 100. Date range valid.                                                                                                                                                     | UC-DASH-01                                           | Implemented           |
+| `POST` | `/children/:childId/contents/:contentId/unlock` | Spend stars to unlock paid content.                                 | Authenticated owning parent. | Path: `childId`, `contentId`.                                                                                           | `201` with `unlock`, `child_total_stars`.                                                                                             | `400` invalid UUID. `401` invalid session. `403` child not owned. `404` child/content not found. `409` insufficient stars or already unlocked.                                        | Content must be published; cost >= 0; atomic update must ensure `total_stars >= cost`. Star transaction ledger is still missing.                                                                        | UC-ECON-01                                           | Partial               |
 
 ### Pets And Store
 
@@ -911,67 +929,53 @@ Standard error body:
 | `POST`  | `/children/:childId/pets`             | Buy pet for child.          | Authenticated owning parent. | Body: `pet_id`, optional `custom_name`. | `201` with `child_pet` and `child_total_stars`. | `400` invalid body. `401` invalid session. `403` child not owned. `404` child/pet not found. `409` insufficient stars or already owned. | Pet must be active and non-deleted; custom name <= 80 chars; atomic balance check. | UC-ECON-02        | Implemented |
 | `PATCH` | `/children/:childId/pets/:childPetId` | Rename owned pet.           | Authenticated owning parent. | Body: `custom_name`.                    | `200` with updated `child_pet`.                 | `400` invalid name/UUID. `401` invalid session. `403` child not owned. `404` pet ownership not found.                                   | Name may be cleared; if present <= 80 chars.                                       | UC-ECON-02        | Implemented |
 
-### Tracking, Regulation, Alerts, Reports
+### Tracking, Alerts, Reports
 
-| Method | Path                                     | Purpose                                              | Auth/Authz                                           | Request                                                                                                                 | Response                                                       | Error responses                                                                                                     | Validation                                                                                                                                                            | Related use cases                   | Status                        |
-| ------ | ---------------------------------------- | ---------------------------------------------------- | ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- | ----------------------------- |
-| `POST` | `/children/:childId/emotion-logs`        | Record derived emotion/behavior event.               | Authenticated owning parent.                         | Body: `emotion_value`, `trigger_source`, optional `duration_seconds`, inferred optional `confidence_score`, `metadata`. | `201` with `log`.                                              | `400` invalid UUID/emotion/source/duration. `401` invalid session. `403` child not owned. `404` child not found.    | Emotion/source enums; duration positive integer; confidence convention is TODO. Backend does not call AI services and must not accept raw webcam frames.              | UC-TRACK-01, UC-REG-01, UC-NOTIF-01 | Implemented basic create only |
-| `GET`  | `/children/:childId/emotion-logs`        | List child emotion history.                          | Authenticated owning parent.                         | Query: optional `from`, `to`, `emotion`, `trigger_source`, `limit`, `cursor`.                                           | `200` with paginated `logs[]`.                                 | `400` invalid filters. `401` invalid session. `403` child not owned. `404` child not found.                         | Limit cap; valid date range; enum filters.                                                                                                                            | UC-TRACK-01, UC-DASH-01             | Missing                       |
-| `POST` | `/children/:childId/regulation-events`   | Record AI-triggered sensory regulation intervention. | Authenticated owning parent via child-facing client. | Body: `trigger_emotion_log_id`, `action`, `started_at`, optional `ended_at`, `duration_seconds`, `metadata`.            | `201` with `regulation_event`.                                 | `400` invalid body. `401` invalid session. `403` child not owned. `404` child/log not found.                        | Action enum: `REDUCE_BRIGHTNESS`, `PAUSE_ANIMATION`, `PLAY_CALMING_AUDIO`, `VOICE_PROMPT`, `TIMEOUT`, `SHOW_STORY`, `RESUME`. Parent manual trigger is not supported. | UC-REG-01, UC-REG-02                | Missing, inferred             |
-| `GET`  | `/children/:childId/regulation-events`   | List regulation history.                             | Authenticated owning parent.                         | Query: optional `from`, `to`, `action`, `limit`, `cursor`.                                                              | `200` with paginated `regulation_events[]`.                    | `400` invalid filters. `401` invalid session. `403` child not owned. `404` child not found.                         | Limit cap and date range.                                                                                                                                             | UC-REG-01, UC-REG-02, UC-DASH-01    | Missing, inferred             |
-| `GET`  | `/children/:childId/alerts`              | List parent alerts for a child.                      | Authenticated owning parent.                         | Query: optional `from`, `to`, `status`, `limit`, `cursor`.                                                              | `200` with `alerts[]`.                                         | `400` invalid filters. `401` invalid session. `403` child not owned. `404` child not found.                         | Alerts are generated only when a negative emotion duration is greater than 60 seconds.                                                                                | UC-NOTIF-01, UC-DASH-01             | Missing, inferred             |
-| `GET`  | `/children/:childId/dashboard`           | Return child learning and emotion dashboard.         | Authenticated owning parent.                         | Query: `days` optional integer 1-90.                                                                                    | `200` with `child`, `learning`, `emotions`, `meltdown_alerts`. | `400` invalid UUID/days. `401` invalid session. `403` child not owned. `404` parent/child not found.                | Days default 7; max 90.                                                                                                                                               | UC-DASH-01                          | Implemented basic version     |
-| `GET`  | `/children/:childId/reports/summary.pdf` | Export human-friendly PDF report.                    | Authenticated owning parent.                         | Query: optional `from`, `to`, `days`, `include_emotions`, `include_learning`.                                           | `200` `application/pdf`.                                       | `400` invalid range. `401` invalid session. `403` child not owned. `404` child not found. `500` generation failure. | Date range bounded; default report range defined, for example 30 days. Prefer readable summaries/charts over raw logs. Audit export event.                            | UC-DASH-02                          | Missing                       |
+| Method | Path                                     | Purpose                                              | Auth/Authz                                           | Request                                                                                                                                                                        | Response                                                       | Error responses                                                                                                                        | Validation                                                                                                                                                                | Related use cases                   | Status                    |
+| ------ | ---------------------------------------- | ---------------------------------------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- | ------------------------- |
+| `POST` | `/children/:childId/emotion-logs`        | Record derived emotion/behavior event.               | Authenticated owning parent.                         | Body: `emotion_value` or `ai_result.emotion`, `trigger_source`, optional `duration_seconds`, `confidence_score`, `ai_emotion_label`, `ai_confidence`, `ai_scores`, `metadata`. | `201` with `log`.                                              | `400` invalid UUID/emotion/source/duration/confidence/AI payload. `401` invalid session. `403` child not owned. `404` child not found. | Accepts backend emotion enum plus model labels `happy`, `sad`, `angry`, `fear`, `neutral`; duration positive integer; confidence/scores 0-1; raw webcam frames forbidden. | UC-TRACK-01, UC-DASH-01             | Implemented               |
+| `GET`  | `/children/:childId/emotion-logs`        | List child emotion history.                          | Authenticated owning parent.                         | Query: optional `from`, `to`, `emotion`, `trigger_source`, `limit`, `cursor`.                                                                                                  | `200` with paginated `logs[]` and `next_cursor`.               | `400` invalid filters. `401` invalid session. `403` child not owned. `404` child not found.                                            | Limit cap; valid date range; enum filters.                                                                                                                                | UC-TRACK-01, UC-DASH-01             | Implemented basic list    |
+| `POST` | `/children/:childId/alerts`              | Record frontend-classified chatbot warning and notify parent. | Authenticated owning parent via child-facing client. | Body: `reason`.                                                                                                                                                               | `201` with persisted `alert`.                                  | `400` invalid UUID/reason. `401` invalid session. `403` child not owned. `404` child not found.                                         | Reason is required and <= 1000 chars. Push title is `HMI - Chatbot Warnings`; push body is the submitted reason.                         | UC-NOTIF-01, UC-DASH-01             | Implemented               |
+| `GET`  | `/children/:childId/alerts`              | List chatbot warning alerts for a child.             | Authenticated owning parent.                         | Query: optional `from`, `to`, `limit`, `cursor`.                                                                                                                               | `200` with paginated `alerts[]`.                               | `400` invalid filters. `401` invalid session. `403` child not owned. `404` child not found.                                            | Cursor pagination by `created_at`; default limit 20, max 100.                                                                              | UC-NOTIF-01, UC-DASH-01             | Implemented               |
+| `GET`  | `/children/:childId/dashboard`           | Return child learning, emotion, and alert dashboard. | Authenticated owning parent.                         | Query: `days` optional integer 1-90.                                                                                                                                           | `200` with `child`, `learning`, `emotions`, `chatbot_alerts`.  | `400` invalid UUID/days. `401` invalid session. `403` child not owned. `404` parent/child not found.                                   | Days default 7; max 90.                                                                                                                    | UC-DASH-01                          | Implemented               |
+| `GET`  | `/children/:childId/reports/summary.pdf` | Export human-friendly PDF report.                    | Authenticated owning parent.                         | Query: optional `from`, `to`, `days`.                                                                                                                                          | `200` `application/pdf`.                                       | `400` invalid range. `401` invalid session. `403` child not owned. `404` child not found. `500` generation failure.                    | Date range bounded to 90 days; default range is last 7 days. Includes daily activities, completed/quit counts, emotion summary, and chatbot warnings. | UC-DASH-02                          | Implemented               |
 
 ### Admin
 
 | Method   | Path                         | Purpose                                    | Auth/Authz           | Request                                                                                                             | Response                                                   | Error responses                                                                                              | Validation                                                                                                                                         | Related use cases        | Status            |
 | -------- | ---------------------------- | ------------------------------------------ | -------------------- | ------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ | ----------------- |
-| `GET`    | `/admin/contents`            | List all content including drafts.         | Authenticated admin. | Query: optional `type`, `status`, `difficulty_level`, `search`, `limit`, `cursor`.                                  | `200` with paginated `contents[]`.                         | `400` invalid filters. `401` invalid session. `403` not admin.                                               | Enum filters; limit cap.                                                                                                                           | UC-ADMIN-01              | Missing           |
-| `POST`   | `/admin/contents`            | Create lecture, quiz, or game.             | Authenticated admin. | Body: base `title`, `type`, `status`; type payload for `lecture`, `quiz`, or `game`.                                | `201` with created content detail.                         | `400` invalid payload. `401` invalid session. `403` not admin. `409` duplicate title if uniqueness is added. | Exactly one type payload matching `type`; difficulty 1-3; game time limit > 0; star costs >= 0; quiz `answer_emotions` includes `correct_emotion`. | UC-ADMIN-01              | Missing           |
-| `GET`    | `/admin/contents/:contentId` | Read any content detail.                   | Authenticated admin. | Path: `contentId`.                                                                                                  | `200` with content detail.                                 | `400` invalid UUID. `401` invalid session. `403` not admin. `404` not found.                                 | UUID format.                                                                                                                                       | UC-ADMIN-01              | Missing           |
-| `PATCH`  | `/admin/contents/:contentId` | Update content and type-specific data.     | Authenticated admin. | Body: partial base and type-specific fields.                                                                        | `200` with updated content detail.                         | `400` invalid fields. `401` invalid session. `403` not admin. `404` not found.                               | Cannot change type unless implemented as delete/recreate; validate status transitions.                                                             | UC-ADMIN-01              | Missing           |
-| `DELETE` | `/admin/contents/:contentId` | Soft-delete content.                       | Authenticated admin. | Path: `contentId`; body confirmation.                                                                               | `200` message.                                             | `400` missing confirmation/invalid UUID. `401` invalid session. `403` not admin. `404` not found.            | Require confirmation and audit log. Set `deleted_at`; preserve unlock/session history.                                                             | UC-ADMIN-01              | Missing           |
-| `POST`   | `/admin/media-assets`        | Register or upload media for content/pets. | Authenticated admin. | Multipart file or body with `file_name`, `mime_type`, `size_bytes`, `purpose`.                                      | `201` with `media_asset` or signed upload URL.             | `400` unsupported MIME/size. `401` invalid session. `403` not admin. `413` too large.                        | Allow image/video/audio/Lottie types defined by product; virus scanning/storage validation inferred.                                               | UC-ADMIN-01, UC-ADMIN-02 | Missing, inferred |
-| `GET`    | `/admin/pets`                | List all pets including hidden.            | Authenticated admin. | Query: optional `status`, `search`, `limit`, `cursor`.                                                              | `200` with `pets[]`.                                       | `400` invalid filters. `401` invalid session. `403` not admin.                                               | Status enum; limit cap.                                                                                                                            | UC-ADMIN-02              | Missing           |
-| `POST`   | `/admin/pets`                | Create pet.                                | Authenticated admin. | Body: `name`, optional `description`, `image_url`, optional `animation_url`, `unlock_star_cost`, optional `status`. | `201` with `pet`.                                          | `400` invalid body. `401` invalid session. `403` not admin.                                                  | Name non-empty; image required; cost >= 0; status `ACTIVE` or `HIDDEN`.                                                                            | UC-ADMIN-02              | Missing           |
-| `PATCH`  | `/admin/pets/:petId`         | Update pet catalog item.                   | Authenticated admin. | Body: partial pet fields.                                                                                           | `200` with updated `pet`.                                  | `400` invalid UUID/body. `401` invalid session. `403` not admin. `404` not found.                            | Same field validation as create; at least one field.                                                                                               | UC-ADMIN-02              | Missing           |
-| `DELETE` | `/admin/pets/:petId`         | Soft-delete or hide pet.                   | Authenticated admin. | Path: `petId`; body confirmation or `mode`.                                                                         | `200` message.                                             | `400` invalid UUID/confirmation. `401` invalid session. `403` not admin. `404` not found.                    | Prefer `status = HIDDEN` for reversible hiding or set `deleted_at` for delete; preserve child ownership history.                                   | UC-ADMIN-02              | Missing           |
-| `GET`    | `/admin/users`               | Search users.                              | Authenticated admin. | Query: optional `role`, `status`, `search`, `limit`, `cursor`.                                                      | `200` with paginated `users[]`.                            | `400` invalid filters. `401` invalid session. `403` not admin.                                               | Role/status enum; search by email/phone/full name.                                                                                                 | UC-ADMIN-03              | Missing           |
-| `GET`    | `/admin/users/:userId`       | Read user detail.                          | Authenticated admin. | Path: `userId`.                                                                                                     | `200` with user, child count, session summary, and status. | `400` invalid UUID. `401` invalid session. `403` not admin. `404` not found.                                 | UUID format.                                                                                                                                       | UC-ADMIN-03              | Missing           |
-| `PATCH`  | `/admin/users/:userId`       | Update user status or role.                | Authenticated admin. | Body: optional `status`, optional `role`.                                                                           | `200` with updated `user`.                                 | `400` invalid body. `401` invalid session. `403` not admin or unsafe self-change. `404` not found.           | Status enum; role enum; protect last admin/self-ban cases.                                                                                         | UC-ADMIN-03              | Missing           |
-| `DELETE` | `/admin/users/:userId`       | Hard-delete user and cascaded data.        | Authenticated admin. | Body: confirmation and reason.                                                                                      | `200` message.                                             | `400` missing confirmation. `401` invalid session. `403` not admin or unsafe self-delete. `404` not found.   | Require audit log; enforce cascade; consider legal retention policy before production.                                                             | UC-ADMIN-03              | Missing           |
-| `GET`    | `/admin/analytics`           | Return aggregate system analytics.         | Authenticated admin. | Query: optional `from`, `to`, `granularity`.                                                                        | `200` with aggregate metrics.                              | `400` invalid range. `401` invalid session. `403` not admin.                                                 | Date range bounded; aggregate only. Must not expose child-specific identifiable logs/statistics/reports.                                           | UC-ADMIN-04              | Missing           |
+| `GET`    | `/admin/contents`            | List all content including drafts.         | Authenticated admin. | Query: optional `type`, `status`, `difficulty_level`, `search`, `limit`, `cursor`.                                  | `200` with paginated `contents[]`.                         | `400` invalid filters. `401` invalid session. `403` not admin.                                               | Enum filters; limit cap.                                                                                                                           | UC-ADMIN-01              | Implemented       |
+| `POST`   | `/admin/contents`            | Create lecture, quiz, or game.             | Authenticated admin. | Body: base `title`, `type`, `status`; type payload for `lecture`, `quiz`, or `game`.                                | `201` with created content detail.                         | `400` invalid payload. `401` invalid session. `403` not admin. `409` duplicate title if uniqueness is added. | Exactly one type payload matching `type`; difficulty 1-3; game time limit > 0; star costs >= 0; quiz `answer_emotions` includes `correct_emotion`. | UC-ADMIN-01              | Implemented       |
+| `GET`    | `/admin/contents/:contentId` | Read any content detail.                   | Authenticated admin. | Path: `contentId`.                                                                                                  | `200` with content detail.                                 | `400` invalid UUID. `401` invalid session. `403` not admin. `404` not found.                                 | UUID format.                                                                                                                                       | UC-ADMIN-01              | Implemented       |
+| `PATCH`  | `/admin/contents/:contentId` | Update content and type-specific data.     | Authenticated admin. | Body: partial base and type-specific fields.                                                                        | `200` with updated content detail.                         | `400` invalid fields. `401` invalid session. `403` not admin. `404` not found.                               | Cannot change type unless implemented as delete/recreate; validate status transitions.                                                             | UC-ADMIN-01              | Implemented       |
+| `DELETE` | `/admin/contents/:contentId` | Soft-delete content.                       | Authenticated admin. | Path: `contentId`; body confirmation.                                                                               | `200` message.                                             | `400` missing confirmation/invalid UUID. `401` invalid session. `403` not admin. `404` not found.            | Require confirmation and audit log. Set `deleted_at`; preserve unlock/session history.                                                             | UC-ADMIN-01              | Implemented       |
+| `POST`   | `/admin/media-assets`        | Upload media for content/pets.    | Authenticated admin. | Multipart file field `file` and `purpose`.                                                                                       | `201` with `media_asset` metadata and signed URL.          | `400` missing file/purpose. `401` invalid session. `403` not admin. `413` too large.                       | Happy-path upload to S3-compatible storage; file must be non-empty and <= 50 MB. MIME allowlisting/virus scanning is out of scope for now. | UC-ADMIN-01, UC-ADMIN-02 | Implemented       |
+| `GET`    | `/admin/pets`                | List all pets including hidden.            | Authenticated admin. | Query: optional `status`, `search`, `limit`.                                                                        | `200` with `pets[]`.                                       | `400` invalid filters. `401` invalid session. `403` not admin.                                               | Status enum; limit cap.                                                                                                                            | UC-ADMIN-02              | Implemented       |
+| `POST`   | `/admin/pets`                | Create pet.                                | Authenticated admin. | Body: `name`, optional `description`, `image_url`, optional `animation_url`, `unlock_star_cost`, optional `status`. | `201` with `pet`.                                          | `400` invalid body. `401` invalid session. `403` not admin.                                                  | Name non-empty; image required; cost >= 0; status `ACTIVE` or `HIDDEN`.                                                                            | UC-ADMIN-02              | Implemented       |
+| `PATCH`  | `/admin/pets/:petId`         | Update pet catalog item.                   | Authenticated admin. | Body: partial pet fields.                                                                                           | `200` with updated `pet`.                                  | `400` invalid UUID/body. `401` invalid session. `403` not admin. `404` not found.                            | Same field validation as create; at least one field.                                                                                               | UC-ADMIN-02              | Implemented       |
+| `DELETE` | `/admin/pets/:petId`         | Soft-delete pet.                           | Authenticated admin. | Path: `petId`; body confirmation exactly `DELETE`.                                                                  | `200` message.                                             | `400` invalid UUID/confirmation. `401` invalid session. `403` not admin. `404` not found.                    | Sets `deleted_at` and `status = HIDDEN`; preserves child ownership history.                                                                        | UC-ADMIN-02              | Implemented       |
+| `GET`    | `/admin/users`               | Search users.                              | Authenticated admin. | Query: optional `role`, `status`, `search`, `limit`, `cursor`.                                                      | `200` with paginated `users[]`.                            | `400` invalid filters. `401` invalid session. `403` not admin.                                               | Role/status enum; search by email/phone/full name.                                                                                                 | UC-ADMIN-03              | Implemented       |
+| `GET`    | `/admin/users/:userId`       | Read user detail.                          | Authenticated admin. | Path: `userId`.                                                                                                     | `200` with user, child count, session summary, and status. | `400` invalid UUID. `401` invalid session. `403` not admin. `404` not found.                                 | UUID format.                                                                                                                                       | UC-ADMIN-03              | Implemented       |
+| `PATCH`  | `/admin/users/:userId`       | Update user status or role.                | Authenticated admin. | Body: optional `status`, optional `role`.                                                                           | `200` with updated `user`.                                 | `400` invalid body. `401` invalid session. `403` not admin or unsafe self-change. `404` not found.           | Status enum; role enum; protect last admin/self-ban cases.                                                                                         | UC-ADMIN-03              | Implemented       |
+| `DELETE` | `/admin/users/:userId`       | Hard-delete user and cascaded data.        | Authenticated admin. | Body: confirmation and reason.                                                                                      | `200` message.                                             | `400` missing confirmation. `401` invalid session. `403` not admin or unsafe self-delete. `404` not found.   | Require audit log; enforce cascade; consider legal retention policy before production.                                                             | UC-ADMIN-03              | Implemented       |
+| `GET`    | `/admin/analytics`           | Return aggregate system analytics.         | Authenticated admin. | Query: optional `from`, `to`, `granularity`.                                                                        | `200` with aggregate metrics.                              | `400` invalid range. `401` invalid session. `403` not admin.                                                 | Date range bounded; aggregate only. Must not expose child-specific identifiable logs/statistics/reports.                                           | UC-ADMIN-04              | Implemented       |
 
 ## Missing Or Ambiguous SRS Points
 
 ### Missing From Current Implementation
 
-1. Google SSO registration/sign-in.
-2. Password reset request/verify/confirm routes.
-3. Device token registration and push notification delivery.
-4. Preferences read/update routes and typed preference schema.
-5. Content browse/detail routes for child learning UI.
-6. Content session completion route for lectures, quizzes, games, and abandoned sessions.
-7. Content session idempotency use case around fixed star rewards.
-8. Star spending route for content unlocks.
-9. Immutable star ledger for debugging balance changes.
-10. AI game scoring contract and detection confidence threshold.
-11. Final emotion catalog.
-12. Emotion log listing/filtering.
-13. Regulation event model and routes.
-14. Alert model, alert cooldown, and notification status tracking.
-15. PDF report export.
-16. Admin content CRUD.
-17. Admin pet CRUD.
-18. Admin user management.
-19. Admin system analytics.
-20. Media asset upload/registration.
-21. Audit logging for admin changes, soft deletes, bans, and report exports.
-22. Pagination/cursor support for list endpoints.
-23. Rate limiting for auth, password reset, emotion logging, and AI event ingestion.
-24. RBAC middleware for parent/admin/system authorization.
-25. Webcam consent and raw-frame ban enforcement.
+1. Quiz and AI game content session completion.
+2. Immutable star ledger for debugging balance changes.
+3. AI game success rule for content-session completion.
+4. Final emotion catalog for quiz/report UX beyond the external model labels.
+5. Alert model, alert cooldown, and notification status tracking (basic alert query implemented).
+6. PDF report export.
+12. Media asset upload/registration.
+13. Audit logging for admin changes, soft deletes, bans, and report exports.
+14. Pagination/cursor support for remaining list endpoints.
+15. Rate limiting for auth, password reset, emotion logging, and AI event ingestion.
+16. RBAC middleware for parent/admin/system authorization.
+17. Webcam consent and raw-frame ban enforcement.
 
 ### Ambiguous In The SRS
 
@@ -983,19 +987,20 @@ Resolved:
 4. Stars cannot be earned repeatedly from the same content.
 5. AI inference/computer vision runs in separate frontend-called services; backend stores only derived outcomes.
 6. Content and pets are soft-deleted.
-7. Regulation/time-out is AI-triggered only.
+7. UI intervention flows are removed from backend scope.
 8. Reports should be human-friendly and readable.
 9. Birth year is frontend-immutable; content difficulty is not recomputed from birth-year changes.
 10. Admins see aggregate analytics only, not child-specific identifiable logs/statistics/reports.
 11. Fixed star rewards are lecture completion = 1, correct quiz answer = 2, and successful AI game = 3.
 12. Raw webcam frame upload/storage is forbidden.
-13. Stress/meltdown detection has no threshold beyond negative emotion duration greater than 60 seconds.
+13. Chatbot warning alerts are frontend-classified and persisted by the backend.
 14. Admin defines quiz media, answer emotion list, and correct answer; the child sees answer emotions as emojis.
+15. The current external emotion model labels are `happy`, `sad`, `angry`, `fear`, and `neutral`; `fear` maps to backend `SCARED`.
 
 Open questions for the undecided SRS points:
 
-1. What AI game detection confidence threshold defines an accepted successful detection?
-2. What is the canonical emotion catalog for quizzes, emotion logs, AI game targets, emoji rendering, and reports?
+1. What exact product rule makes an AI game attempt successful when the model returns predicted label, confidence, and all label scores?
+2. What is the canonical emotion catalog for quizzes, AI game targets, emoji rendering, and reports beyond the five model labels?
 
 ## Implementation Notes For Future Developers
 
@@ -1016,17 +1021,11 @@ Open questions for the undecided SRS points:
 7. Do not trust client-submitted `is_correct` for quizzes. Backend must compare selected answer to stored correct answer/options.
 8. Define a strict `preferences` TypeScript type. Avoid loose `any` in preference metadata.
 9. Validate admin-defined quiz `answer_emotions` before building the quiz API. `correct_emotion` must be present in `answer_emotions`; final allowed values depend on the TODO emotion catalog.
-10. Treat AI scores as frontend-submitted derived outcomes. This backend does not call AI services directly, so reward endpoints need strict score range validation, idempotency, and first-reward enforcement.
+10. Treat AI label/confidence/scores as frontend-submitted derived outcomes. This backend does not call AI services directly, so reward endpoints need strict model-result validation, idempotency, and first-reward enforcement.
 11. Store derived webcam events, not raw frames. Raw webcam frame upload/storage is forbidden even if other media upload is introduced.
 12. Use cursor pagination for logs, sessions, users, content, and admin analytics. Offset pagination is acceptable only for small admin lists.
 13. Keep the existing error envelope from `docs/API.md` for all endpoints.
-14. Add rate limits:
-
-- Auth and password reset by IP and identifier.
-- Emotion/regulation logs by child and session.
-- Admin media upload by admin and file size.
-
-15. Add audit logs for:
+14. Add audit logs for:
 
 - Admin user bans/unbans.
 - Admin hard deletes.
@@ -1034,23 +1033,23 @@ Open questions for the undecided SRS points:
 - Report exports.
 - Password reset completion.
 
-16. For report generation, start with synchronous PDF for bounded date ranges. Move to async jobs if generation exceeds API latency targets.
-17. Keep dashboard queries aggregate-first. Avoid loading all logs into memory for weekly/monthly charts.
-18. Add indexes before high-volume launch:
+15. For report generation, start with synchronous PDF for bounded date ranges. Move to async jobs if generation exceeds API latency targets.
+16. Keep dashboard queries aggregate-first. Avoid loading all logs into memory for weekly/monthly charts.
+17. Add indexes before high-volume launch:
 
 - `content_sessions(child_id, created_at desc)` already exists.
 - `emotion_logs(child_id, created_at desc)` already exists.
 - Add indexes for `device_tokens(user_id)`, `alerts(child_id, created_at desc)`, `star_transactions(child_id, created_at desc)`, and `audit_logs(actor_user_id, created_at desc)`.
 
-19. Content and pet delete routes should set `deleted_at` and exclude those rows from normal browse/store flows. Hard delete should be reserved for an explicit legal-erasure workflow.
-20. Keep admin content creation transactional: insert `contents` and exactly one detail row or rollback all changes.
+18. Content and pet delete routes should set `deleted_at` and exclude those rows from normal browse/store flows. Hard delete should be reserved for an explicit legal-erasure workflow.
+19. Keep admin content creation transactional: insert `contents` and exactly one detail row or rollback all changes.
 
 ## Recommended Build Order
 
 1. P0 auth completion: password reset, Google SSO, RBAC middleware.
 2. P0 child/profile completion: child detail/update/delete and preferences endpoints.
 3. P0 content consumption: child content list/detail and content session completion with backend reward policy.
-4. P0 tracking/dashboard: emotion log list, dashboard hardening, regulation events.
+4. P0 tracking/dashboard: emotion log list, dashboard hardening, chatbot warning alerts.
 5. P1 economy/store: atomic content unlocks, pets, and star ledger.
 6. P1 notifications/reports: device tokens, alerts, PDF export.
 7. P1 admin: content CRUD, media assets, pet CRUD, user management.

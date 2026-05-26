@@ -1,9 +1,13 @@
 import { sql } from "drizzle-orm";
 import { Elysia } from "elysia";
 import { db } from "../db/client.ts";
+import adminRouter from "./admin.ts";
 import authRouter from "./auth.ts";
 import childrenRouter from "./children.ts";
+import contentRouter from "./content.ts";
+import devicesRouter from "./devices.ts";
 import petsRouter from "./pets.ts";
+import preferencesRouter from "./preferences.ts";
 import trackingRouter from "./tracking.ts";
 
 const healthRouter = new Elysia().get("/health", async ({ set }) => {
@@ -33,7 +37,11 @@ const app = new Elysia()
   .use(healthRouter)
   .use(authRouter)
   .use(childrenRouter)
+  .use(preferencesRouter)
+  .use(contentRouter)
   .use(petsRouter)
-  .use(trackingRouter);
+  .use(trackingRouter)
+  .use(devicesRouter)
+  .use(adminRouter);
 
 export default app;

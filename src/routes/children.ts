@@ -4,6 +4,7 @@ import { deleteChildProfile } from "../usecases/children/delete_child_profile.ts
 import { getChildProfile } from "../usecases/children/get_child_profile.ts";
 import { listChildProfiles } from "../usecases/children/list_child_profiles.ts";
 import { updateChildProfile } from "../usecases/children/update_child_profile.ts";
+import { toPreferenceSettingsResponse } from "../usecases/preferences/preference_settings.ts";
 import { withApiErrorHandler } from "./api_error_handler.ts";
 import { requireAuth } from "./middleware/require_auth.ts";
 
@@ -20,11 +21,16 @@ const protectedChildrenRouter = new Elysia()
           }
         : undefined;
 
+      const webcamConsent = body.webcam_consent !== undefined
+        ? (body.webcam_consent === "true" || body.webcam_consent === true)
+        : undefined;
+
       const child = await createChildProfile({
         parentId: authUserId,
         nickname: body.nickname,
         birthYear: Number(body.birth_year),
         avatar,
+        webcamConsent,
       });
 
       set.status = 201;
@@ -37,6 +43,7 @@ const protectedChildrenRouter = new Elysia()
           avatar_url: child.avatarUrl,
           birth_year: child.birthYear,
           total_stars: child.totalStars,
+          webcam_consent: child.webcamConsent,
           created_at: child.createdAt,
           updated_at: child.updatedAt,
         },
@@ -48,6 +55,7 @@ const protectedChildrenRouter = new Elysia()
         nickname: t.String(),
         birth_year: t.Numeric(),
         avatar: t.Optional(t.File()),
+        webcam_consent: t.Optional(t.Union([t.Boolean(), t.String()])),
       }),
     },
   )
@@ -63,12 +71,13 @@ const protectedChildrenRouter = new Elysia()
         avatar_url: child.avatarUrl,
         birth_year: child.birthYear,
         total_stars: child.totalStars,
+        webcam_consent: child.webcamConsent,
         created_at: child.createdAt,
         updated_at: child.updatedAt,
         preferences: child.preferences
           ? {
               is_high_contrast: child.preferences.isHighContrast,
-              preferences: child.preferences.preferencesData,
+              preferences: toPreferenceSettingsResponse(child.preferences.preferencesData),
             }
           : null,
       })),
@@ -89,12 +98,13 @@ const protectedChildrenRouter = new Elysia()
         avatar_url: child.avatarUrl,
         birth_year: child.birthYear,
         total_stars: child.totalStars,
+        webcam_consent: child.webcamConsent,
         created_at: child.createdAt,
         updated_at: child.updatedAt,
         preferences: child.preferences
           ? {
               is_high_contrast: child.preferences.isHighContrast,
-              preferences: child.preferences.preferencesData,
+              preferences: toPreferenceSettingsResponse(child.preferences.preferencesData),
             }
           : null,
       },
@@ -111,11 +121,16 @@ const protectedChildrenRouter = new Elysia()
           }
         : undefined;
 
+      const webcamConsent = body.webcam_consent !== undefined
+        ? (body.webcam_consent === "true" || body.webcam_consent === true)
+        : undefined;
+
       const child = await updateChildProfile({
         parentId: authUserId,
         childId: params.childId,
         nickname: body.nickname,
         avatar,
+        webcamConsent,
       });
 
       set.status = 200;
@@ -128,6 +143,7 @@ const protectedChildrenRouter = new Elysia()
           avatar_url: child.avatarUrl,
           birth_year: child.birthYear,
           total_stars: child.totalStars,
+          webcam_consent: child.webcamConsent,
           created_at: child.createdAt,
           updated_at: child.updatedAt,
         },
@@ -138,6 +154,7 @@ const protectedChildrenRouter = new Elysia()
       body: t.Object({
         nickname: t.Optional(t.String()),
         avatar: t.Optional(t.File()),
+        webcam_consent: t.Optional(t.Union([t.Boolean(), t.String()])),
       }),
     },
   )

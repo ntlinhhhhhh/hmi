@@ -1,10 +1,12 @@
 import { db } from "../../db/client.ts";
+import { countChildAlerts, listChildAlertRows } from "../../db/queries/alert_queries.ts";
 import { getChildProfileById } from "../../db/queries/child_profile_queries.ts";
-import { getEmotionStats, getMeltdownAlerts } from "../../db/queries/tracking_queries.ts";
+import { getEmotionStats } from "../../db/queries/tracking_queries.ts";
 import { getLearningSummary } from "../../db/queries/learning_queries.ts";
 import { getUserById } from "../../db/queries/user_queries.ts";
 import { isValidUuid } from "../../utils/validation.ts";
 import { AppError } from "../app_error.ts";
+import { toChatbotAlertResult } from "../tracking/create_chatbot_alert.ts";
 
 export type GetChildDashboardErrorType =
   | "MISSING_PARENT_ID"
@@ -42,14 +44,38 @@ export type ChildDashboardResult = {
     emotion: string;
     count: number;
   }>;
-  meltdownAlerts: Array<{
-    id: string;
-    emotionValue: string;
-    triggerSource: string;
-    durationSeconds: number | null;
-    createdAt: string;
-  }>;
+  chatbotAlerts: {
+    total: number;
+    recent: Array<{
+      id: string;
+      reason: string;
+      notificationStatus: string;
+      notificationSentAt: string | null;
+      notificationError: string | null;
+      createdAt: string;
+    }>;
+  };
 };
+
+type RecentChatbotAlert = {
+  id: string;
+  reason: string;
+  notificationStatus: string;
+  notificationSentAt: string | null;
+  notificationError: string | null;
+  createdAt: string;
+};
+
+function toRecentChatbotAlert(row: ReturnType<typeof toChatbotAlertResult>): RecentChatbotAlert {
+  return {
+    id: row.id,
+    reason: row.reason,
+    notificationStatus: row.notificationStatus,
+    notificationSentAt: row.notificationSentAt,
+    notificationError: row.notificationError,
+    createdAt: row.createdAt,
+  };
+}
 
 function normalizeUuid(
   value: string,
@@ -130,10 +156,12 @@ export async function getChildDashboard(
       );
     }
 
-    const [learningSummary, emotionStats, meltdownAlerts] = await Promise.all([
+    const alertFrom = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+    const [learningSummary, emotionStats, alertCount, recentAlerts] = await Promise.all([
       getLearningSummary(db, childId),
       getEmotionStats(db, childId, days),
-      getMeltdownAlerts(db, childId, days),
+      countChildAlerts(db, childId, alertFrom),
+      listChildAlertRows(db, childId, { from: alertFrom, limit: 5 }),
     ]);
 
     return {
@@ -155,13 +183,10 @@ export async function getChildDashboard(
         emotion: row.emotion,
         count: Number(row.count),
       })),
-      meltdownAlerts: meltdownAlerts.map((log) => ({
-        id: log.id,
-        emotionValue: log.emotionValue,
-        triggerSource: log.triggerSource,
-        durationSeconds: log.durationSeconds ?? null,
-        createdAt: log.createdAt,
-      })),
+      chatbotAlerts: {
+        total: alertCount,
+        recent: recentAlerts.map(toChatbotAlertResult).map(toRecentChatbotAlert),
+      },
     };
   } catch (error: unknown) {
     if (error instanceof AppError) {

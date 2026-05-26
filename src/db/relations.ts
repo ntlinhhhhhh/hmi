@@ -6,6 +6,7 @@ import {
   childProfiles,
   preferences,
   emotionLogs,
+  alerts,
   contents,
   lectures,
   quizzes,
@@ -14,6 +15,9 @@ import {
   contentSessions,
   pets,
   childPets,
+  deviceTokens,
+  starTransactions,
+  mediaAssets,
 } from "./schema";
 
 export const usersRelations = relations(users, ({ many }) => ({
@@ -21,6 +25,8 @@ export const usersRelations = relations(users, ({ many }) => ({
   contents: many(contents),
   passwordResetCodes: many(passwordResetCodes),
   sessions: many(sessions),
+  deviceTokens: many(deviceTokens),
+  mediaAssets: many(mediaAssets),
 }));
 
 export const passwordResetCodesRelations = relations(passwordResetCodes, ({ one }) => ({
@@ -47,9 +53,11 @@ export const childProfilesRelations = relations(childProfiles, ({ one, many }) =
     references: [preferences.childId],
   }),
   emotionLogs: many(emotionLogs),
+  alerts: many(alerts),
   unlockContents: many(unlockContent),
   contentSessions: many(contentSessions),
   childPets: many(childPets),
+  starTransactions: many(starTransactions),
 }));
 
 export const preferencesRelations = relations(preferences, ({ one }) => ({
@@ -62,6 +70,13 @@ export const preferencesRelations = relations(preferences, ({ one }) => ({
 export const emotionLogsRelations = relations(emotionLogs, ({ one }) => ({
   childProfile: one(childProfiles, {
     fields: [emotionLogs.childId],
+    references: [childProfiles.id],
+  }),
+}));
+
+export const alertsRelations = relations(alerts, ({ one }) => ({
+  childProfile: one(childProfiles, {
+    fields: [alerts.childId],
     references: [childProfiles.id],
   }),
 }));
@@ -142,5 +157,26 @@ export const childPetsRelations = relations(childPets, ({ one }) => ({
   pet: one(pets, {
     fields: [childPets.petId],
     references: [pets.id],
+  }),
+}));
+
+export const deviceTokensRelations = relations(deviceTokens, ({ one }) => ({
+  user: one(users, {
+    fields: [deviceTokens.userId],
+    references: [users.id],
+  }),
+}));
+
+export const starTransactionsRelations = relations(starTransactions, ({ one }) => ({
+  childProfile: one(childProfiles, {
+    fields: [starTransactions.childId],
+    references: [childProfiles.id],
+  }),
+}));
+
+export const mediaAssetsRelations = relations(mediaAssets, ({ one }) => ({
+  creator: one(users, {
+    fields: [mediaAssets.createdBy],
+    references: [users.id],
   }),
 }));
