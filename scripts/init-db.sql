@@ -25,6 +25,26 @@ CREATE INDEX IF NOT EXISTS "idx_users_email"
 CREATE INDEX IF NOT EXISTS "idx_users_phone_number"
   ON "users" USING btree ("phone_number" citext_ops ASC NULLS LAST);
 
+INSERT INTO "users" (
+  "id",
+  "email",
+  "password_hash",
+  "auth_provider",
+  "full_name",
+  "role",
+  "status"
+)
+VALUES (
+  '00000000-0000-4000-8000-000000000001',
+  'admin@gmail.com',
+  '$argon2id$v=19$m=65536,t=2,p=1$kb7KHMSYalfNK/07TWWTlclnmV3qovrqP+g7ph/tEOM$wWRVBOnLrNpePoLP59fiqe8h6m4LKpIIEt/ANZ8QtoE',
+  'LOCAL',
+  'Admin',
+  'ADMIN',
+  'ACTIVE'
+)
+ON CONFLICT ("email") DO NOTHING;
+
 CREATE TABLE IF NOT EXISTS "password_reset_codes" (
   "id" uuid PRIMARY KEY NOT NULL,
   "user_id" uuid NOT NULL,
@@ -520,3 +540,94 @@ CREATE TABLE IF NOT EXISTS "media_assets" (
 
 CREATE INDEX IF NOT EXISTS "idx_media_assets_created_by"
   ON "media_assets" USING btree ("created_by" uuid_ops ASC NULLS LAST);
+
+INSERT INTO "contents" ("id", "title", "type", "status")
+VALUES
+  ('11111111-1111-4111-8111-111111110101', 'lecture emotion happy', 'LECTURE', 'PUBLISHED'),
+  ('11111111-1111-4111-8111-111111110102', 'lecture emotion sad', 'LECTURE', 'PUBLISHED'),
+  ('11111111-1111-4111-8111-111111110103', 'lecture emotion angry', 'LECTURE', 'PUBLISHED'),
+  ('11111111-1111-4111-8111-111111110104', 'lecture express emotion', 'LECTURE', 'PUBLISHED'),
+  ('11111111-1111-4111-8111-111111110201', 'quiz recognize happy', 'QUIZ', 'PUBLISHED'),
+  ('11111111-1111-4111-8111-111111110202', 'quiz recognize sad', 'QUIZ', 'PUBLISHED'),
+  ('11111111-1111-4111-8111-111111110203', 'quiz choose calm', 'QUIZ', 'PUBLISHED'),
+  ('11111111-1111-4111-8111-111111111101', 'game choose-emotion-happy', 'GAME', 'PUBLISHED'),
+  ('11111111-1111-4111-8111-111111111102', 'game choose-emotion-sad', 'GAME', 'PUBLISHED'),
+  ('11111111-1111-4111-8111-111111111103', 'game choose-emotion-calm', 'GAME', 'PUBLISHED'),
+  ('11111111-1111-4111-8111-111111111201', 'game choose-reaction-help', 'GAME', 'PUBLISHED'),
+  ('11111111-1111-4111-8111-111111111202', 'game choose-reaction-thanks', 'GAME', 'PUBLISHED'),
+  ('11111111-1111-4111-8111-111111111203', 'game choose-reaction-support', 'GAME', 'PUBLISHED'),
+  ('11111111-1111-4111-8111-111111111301', 'game match-emotion-play', 'GAME', 'PUBLISHED'),
+  ('11111111-1111-4111-8111-111111111302', 'game match-emotion-lost-toy', 'GAME', 'PUBLISHED'),
+  ('11111111-1111-4111-8111-111111111303', 'game match-emotion-boundary', 'GAME', 'PUBLISHED')
+ON CONFLICT ("id") DO UPDATE
+SET
+  "title" = EXCLUDED."title",
+  "type" = EXCLUDED."type",
+  "status" = EXCLUDED."status",
+  "deleted_at" = NULL,
+  "updated_at" = now();
+
+INSERT INTO "lectures" ("id", "media_url", "description", "difficulty_level", "is_default")
+VALUES
+  ('11111111-1111-4111-8111-111111110101', '😊', 'Cảm xúc vui thường xuất hiện khi con thấy thích thú, được chơi cùng bạn hoặc được khen.', 1, true),
+  ('11111111-1111-4111-8111-111111110102', '😢', 'Cảm xúc buồn có thể đến khi con mất món đồ yêu thích, nhớ ai đó hoặc cần được lắng nghe.', 1, true),
+  ('11111111-1111-4111-8111-111111110103', '😡', 'Cảm xúc tức giận xuất hiện khi con thấy không công bằng hoặc điều con muốn chưa xảy ra.', 1, true),
+  ('11111111-1111-4111-8111-111111110104', '💬', 'Con có thể nói: con đang buồn, con cần nghỉ một chút, hoặc con muốn được giúp đỡ.', 1, true)
+ON CONFLICT ("id") DO UPDATE
+SET
+  "media_url" = EXCLUDED."media_url",
+  "description" = EXCLUDED."description",
+  "difficulty_level" = EXCLUDED."difficulty_level",
+  "is_default" = EXCLUDED."is_default";
+
+INSERT INTO "quizzes" (
+  "id",
+  "media_url",
+  "description",
+  "difficulty_level",
+  "is_default",
+  "answer_emotions",
+  "correct_emotion"
+)
+VALUES
+  ('11111111-1111-4111-8111-111111110201', '😊', 'Mặt nào thể hiện cảm xúc vui?', 1, true, '["JOY","SAD","ANGRY"]'::jsonb, 'JOY'),
+  ('11111111-1111-4111-8111-111111110202', '😢', 'Mặt nào thể hiện cảm xúc buồn?', 1, true, '["JOY","SAD","CALM"]'::jsonb, 'SAD'),
+  ('11111111-1111-4111-8111-111111110203', '😌', 'Khi cần bình tĩnh, con nên chọn cảm xúc nào?', 1, true, '["ANGRY","CALM","SAD"]'::jsonb, 'CALM')
+ON CONFLICT ("id") DO UPDATE
+SET
+  "media_url" = EXCLUDED."media_url",
+  "description" = EXCLUDED."description",
+  "difficulty_level" = EXCLUDED."difficulty_level",
+  "is_default" = EXCLUDED."is_default",
+  "answer_emotions" = EXCLUDED."answer_emotions",
+  "correct_emotion" = EXCLUDED."correct_emotion";
+
+INSERT INTO "game" (
+  "id",
+  "target_emotion",
+  "time_limit_seconds",
+  "difficulty_level",
+  "is_default",
+  "unlock_star_cost",
+  "prompt_asset_type",
+  "prompt_asset_url"
+)
+VALUES
+  ('11111111-1111-4111-8111-111111111101', 'JOY', 60, 1, true, 0, 'ICON', '😊'),
+  ('11111111-1111-4111-8111-111111111102', 'SAD', 60, 1, true, 0, 'ICON', '😢'),
+  ('11111111-1111-4111-8111-111111111103', 'CALM', 60, 1, true, 0, 'ICON', '😌'),
+  ('11111111-1111-4111-8111-111111111201', 'CALM', 60, 1, true, 0, 'ICON', '🤝'),
+  ('11111111-1111-4111-8111-111111111202', 'JOY', 60, 1, true, 0, 'ICON', '🎂'),
+  ('11111111-1111-4111-8111-111111111203', 'SAD', 60, 1, true, 0, 'ICON', '💬'),
+  ('11111111-1111-4111-8111-111111111301', 'JOY', 60, 1, true, 0, 'ICON', '😊'),
+  ('11111111-1111-4111-8111-111111111302', 'SAD', 60, 1, true, 0, 'ICON', '😢'),
+  ('11111111-1111-4111-8111-111111111303', 'ANGRY', 60, 1, true, 0, 'ICON', '😡')
+ON CONFLICT ("id") DO UPDATE
+SET
+  "target_emotion" = EXCLUDED."target_emotion",
+  "time_limit_seconds" = EXCLUDED."time_limit_seconds",
+  "difficulty_level" = EXCLUDED."difficulty_level",
+  "is_default" = EXCLUDED."is_default",
+  "unlock_star_cost" = EXCLUDED."unlock_star_cost",
+  "prompt_asset_type" = EXCLUDED."prompt_asset_type",
+  "prompt_asset_url" = EXCLUDED."prompt_asset_url";
